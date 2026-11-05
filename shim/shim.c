@@ -11,6 +11,9 @@
 #include "mmu.h"
 #include "loader.h"
 #include "ufs.h"
+#ifdef BOARD_DAVINCI
+#include "panel.h"
+#endif
 
 #define IMEM_RESTART_REASON	0x146aa65cUL	/* qcom,msm-imem restart_reason@65c */
 #define RESTART_BOOTLOADER	0x77665500U
@@ -370,9 +373,62 @@ static uint32_t to_us(uint64_t ticks)
 	return ticks * 10 / 192;	/* 19.2 MHz */
 }
 
+#ifdef BOARD_DAVINCI
+static struct panel_info panel;
+
+/* A bar sliding down under the text; kick=1 also triggers each frame by hand. */
+static void bar_run(unsigned seconds, int kick)
+{
+	const int top = 1500, h = 120, span = FB_H - top - h;
+	uint64_t end = now() + rsr("cntfrq_el0") * seconds;
+
+	for (int y = 0; now() < end; y = (y + 24) % span) {
+		for (int yy = top; yy < FB_H; yy++) {
+			volatile uint32_t *line = con_fb + yy * (FB_STRIDE / 4);
+			uint32_t c = (yy >= top + y && yy < top + y + h) ? WHITE : 0xff000000U;
+			for (int x = 0; x < FB_W; x++)
+				line[x] = c;
+		}
+		if (kick)
+			panel_kick(&panel);
+		delay_ms(33);
+	}
+}
+
+/*
+ * What to report back: phase 1 (GREEN, ~15 s) only moves if autorefresh
+ * works; phase 2 (BLUE, ~15 s) also triggers each frame by hand.
+ */
+static void davinci_display_test(int ar_rc)
+{
+	for (int phase = 1; phase <= 2; phase++) {
+		con_clear(phase == 1 ? 0xff006000U : BLUE);
+		con_str("DAVINCI", phase == 1 ? "phase 1: autorefresh only" : "phase 2: manual kick");
+		con_skip();
+		con_hex2("PANEL", "ctl=", panel.ctl, "pp=", panel.pp);
+		con_hex2("AUTOREF", "rc=", ar_rc, "sspp=", panel.sspp);
+		con_hex2("SRC", "size=", panel.src_size, "stride=", panel.src_stride);
+		con_hex2("FORMAT", "fmt=", panel.src_format, "addr=", panel.sspp >= 0 ? panel.sspp_addr[panel.sspp] : 0);
+		for (int n = 0; n < NR_CTL; n++)
+			con_hex2("CTL", "top=", panel.ctl_top[n], "intf=", panel.ctl_intf[n]);
+		for (int n = 0; n < NR_PP; n++)
+			con_hex2("PP", "te=", panel.pp_te[n], "ar=", panel.pp_ar[n]);
+		if (phase == 2)
+			panel_kick(&panel);
+		bar_run(15, phase == 2);
+	}
+}
+#endif
+
 void shim_main(uint64_t dtb)
 {
 	struct mmu_info mi;
+
+#ifdef BOARD_DAVINCI
+	/* Before any drawing: make the command-mode panel follow the buffer. */
+	panel_probe(&panel);
+	int ar_rc = panel_autorefresh(&panel);
+#endif
 
 	/* An xnu payload in the ramdisk means: boot it (MMU stays off). */
 	stage = "loader";
@@ -382,6 +438,12 @@ void shim_main(uint64_t dtb)
 	const char *why = loader_boot(dtb);
 	con_str("LOADER", why);
 	con_skip();
+
+#ifdef BOARD_DAVINCI
+	stage = "display test";
+	davinci_display_test(ar_rc);
+	reset(20);
+#endif
 
 	/* No payload: probe the internal UFS while the MMU is still off. */
 	stage = "ufs";

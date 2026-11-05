@@ -87,6 +87,44 @@ Cosa serve (ipotesi, da verificare sul telefono):
 Il port per Pixel 4 (Snapdragon 855, DPU della stessa generazione) l'ha già
 risolto: è il riferimento da leggere.
 
+### Soluzione scelta: autorefresh del pingpong
+
+Dal driver DPU di Linux (`dpu_hw_pingpong.c`, `dpu_5_2_sm7150.h`, v6.12) e dal DT:
+
+| Blocco | Indirizzo fisico | Registri usati |
+| --- | --- | --- |
+| MDP (`mdp_phys`) | 0xae00000 | |
+| CTL_0..5 | 0xae02000 + n×0x200 | `CTL_TOP` 0x14, `CTL_START` 0x1c, `CTL_INTF_ACTIVE` 0xf4 |
+| PINGPONG_0..3 | 0xae71000 + n×0x800 | `PP_TEAR_CHECK_EN` 0x0, `PP_AUTOREFRESH_CONFIG` 0x30 |
+| SSPP (vig0, vig1, dma0, dma1, dma2) | 0xae05000, 0xae07000, 0xae25000, 0xae27000, 0xae29000 | `SRC_SIZE` 0x0, `SRC0_ADDR` 0x14, `SRC_YSTRIDE0` 0x24, `SRC_FORMAT` 0x30 |
+| INTF_1 (DSI0) | 0xae6b800 | |
+
+Il DPU ha una modalità **autorefresh**: con `PP_AUTOREFRESH_CONFIG = bit31 | N`
+rilegge il framebuffer e invia un frame al pannello ogni N impulsi TE. Linux la
+spegne quando prende il display dal bootloader. Noi facciamo il contrario: la
+accendiamo una volta all'inizio dello shim (N = 1, cioè 60 Hz). Da quel momento
+il pannello si comporta come quello in video mode di sweet, anche per XNU, che
+quindi non dovrebbe aver bisogno di patch per il kick (ipotesi da verificare).
+
+Codice: `shim/panel.c`. Lo shim trova il CTL con INTF_1 attivo, il pingpong con
+il tear check acceso e la pipe SSPP che legge il buffer a 0x9c000000, poi accende
+l'autorefresh. Il tutto è compilato solo con `BOARD=davinci bash shim/build.sh`
+(`-DBOARD_DAVINCI`, `FB_H` = 2340, header boot.img con os_version 16.0.0 /
+2025-12 come quello di LineageOS).
+
+### Test 1: schermo (da fare)
+
+`fastboot boot shim/out/shim-boot.img`, senza payload. Lo shim mostra:
+1. **fase 1, sfondo verde, 15 s**: solo autorefresh. Se la barra bianca in basso
+   scorre, l'autorefresh funziona;
+2. **fase 2, sfondo blu, 15 s**: in più un `CTL_START` manuale a ogni frame;
+3. poi si riavvia da solo (dopo circa 20 s).
+
+In entrambe le fasi il testo riporta i registri letti (CTL, PP, SSPP, formato e
+stride del buffer). Se lo schermo resta sul logo, nessuno dei due metodi
+funziona (o gli indirizzi sono sbagliati): tenere Power + Volume giù per
+tornare al fastboot.
+
 ## Piano
 
 1. ✅ Accesso root, backup, device tree.
@@ -118,3 +156,19 @@ risolto: è il riferimento da leggere.
 - Aggiunto `tools/fdt2txt.py` (stampa un DTB senza `dtc`, che manca su Windows).
 - Analisi del device tree: tabella sopra. Scoperto che il pannello è in
   command mode, unica differenza grossa rispetto a sweet.
+- Ambiente di build: WSL aveva solo la distro di Docker. Installata Ubuntu
+  (`wsl --install -d Ubuntu`, che oggi installa la 26.04.1 LTS). Al primo avvio
+  errore `Wsl/Service/E_UNEXPECTED`: WSL 2.3.24 era troppo vecchio per questa
+  build di Windows. Risolto con `wsl --update` (→ WSL 3.0.3, kernel 6.18.54).
+- In Ubuntu, da root: `gcc-aarch64-linux-gnu` 15.2, `mkbootimg`,
+  `android-sdk-libsparse-utils` (img2simg), `device-tree-compiler`, `cpio`,
+  `build-essential`.
+- Il primo build è fallito con `set: pipefail: invalid option name`: Git per
+  Windows aveva convertito i file in CRLF. Il repo ora usa `core.autocrlf=false`
+  e `core.eol=lf`, ed è stato ricaricato con LF.
+- Lo shim originale di sweet compila. Header del `boot.img` di LineageOS:
+  versione 2, page 4096, kernel 0x8000, ramdisk 0x1000000, tags 0x100,
+  dtb 0x1f00000: gli stessi offset che usa `shim/build.sh`. Il dtb per lo shim
+  viene da `dtb/boot_unpacked/dtb` (estratto dal backup di `boot`).
+- Scritto `shim/panel.c` (autorefresh) e il test dello schermo. Build davinci
+  pulito, senza warning.
