@@ -510,3 +510,32 @@ sono i livelli ARC (presi dall'A618 di SC7180) e lo stato del blit.
   volta (org.davinci.NAME, root, output in `/var/local/NAME.out`,
   `DYLD_LIBRARY_PATH=/var/local/lib`). Sul telefono non c'è una shell: i
   test girano così.
+
+### Immagini di prova GPU e job di test (2026-11-05, utente via)
+
+- **Kernel con la 0203 corretta** (xnu run `42059651456`, 7 min 55 s, nessuna
+  patch saltata) in `xnu/out-0203/` (locale).
+- Due immagini, stessa cmdline di `0202c` (stessa ADT `davinci-flame.adt`) e
+  firmware GPU nell'ADT (`--gpufw research/fw/gpu`):
+  - `shim/out/shim-boot-0203g.img` (sha256 `c8a281be…`): **`sweetgpu=1`**,
+    la GPU si accende al boot;
+  - `shim/out/shim-boot-0203.img` (sha256 `95af21ae…`): GPU spenta, per
+    controllare che il nuovo kernel avvii come `0202c`.
+  `0202c` resta l'immagine sicura.
+- Sul telefono (già caricati e verificati con SHA-256): `/private/var/local/
+  bin/{v2test,vktest}`, `/private/var/local/lib/libvulkan_freedreno.dylib`.
+- `tools/davinci-launchd-job.py` ha ora `--interval SEC` (launchd
+  `StartInterval`: il job parte dopo SEC secondi e poi ogni SEC secondi,
+  output in coda). Job aggiunti (poi `sync`):
+  - `org.davinci.v2test` all'avvio → `/var/local/v2test.out`;
+  - `org.davinci.vktest` ogni 300 s → `/var/local/vktest.out` (il primo
+    dopo ~5 minuti, così non usa la GPU insieme a v2test).
+  Con la GPU spenta falliscono subito senza conseguenze. Toglierli dopo la
+  prova: `davinci-launchd-job.py remove v2test` / `remove vktest`.
+- **Prova al ritorno dell'utente**:
+  1. `fastboot boot shim/out/shim-boot-0203g.img`;
+  2. live log (`tools/davinci-usbnet.ps1`): cercare `SWEET GPU`/`A6XX`
+     (GMU boot, HFI, CP, blit);
+  3. dopo ~6 minuti leggere `/private/var/local/v2test.out` e
+     `vktest.out` con `tools/davinci-files.py get`.
+  Se il boot si blocca: Power+Vol- e `fastboot boot` di `0202c`.

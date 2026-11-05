@@ -1,12 +1,15 @@
 #!/usr/bin/env python3
 """Add or remove a one-shot boot job in the phone's launchd job cache.
 
-  davinci-launchd-job.py add NAME PROGRAM [ARG ...]
+  davinci-launchd-job.py add [--interval SEC] NAME PROGRAM [ARG ...]
   davinci-launchd-job.py remove NAME
 
 There is no shell on the phone: a job is how a test program (vktest,
 v2test, ...) runs. The job org.davinci.NAME runs PROGRAM once at boot as
 root, output in /var/local/NAME.out (read it with tools/davinci-files.py).
+With --interval SEC it runs SEC seconds after boot instead, and again every
+SEC seconds (launchd StartInterval; output is appended): a way to start a
+test after another one without a shell.
 Same mechanism as tools/davinci-wland-job.py; the first original cache is
 kept as launchd.plist.orig on the phone and in research/launchd/.
 Reboot the phone afterwards: launchd reads the cache at boot.
@@ -24,6 +27,10 @@ def files(*args):
 
 
 def main(argv):
+    interval = None
+    if argv[1:2] == ['--interval'] and argv[0] == 'add':
+        interval = int(argv[2])
+        argv = argv[:1] + argv[3:]
     if len(argv) < 2 or argv[0] not in ('add', 'remove') or (argv[0] == 'add' and len(argv) < 3):
         raise SystemExit(__doc__)
     what, name = argv[0], argv[1]
@@ -43,7 +50,7 @@ def main(argv):
         jobs[key] = {
             'Label': label,
             'ProgramArguments': argv[2:],
-            'RunAtLoad': True,
+            'RunAtLoad': interval is None,
             'KeepAlive': False,
             'UserName': 'root',
             'EnvironmentVariables': {'PATH': '/var/local/bin:/usr/bin:/bin:/usr/sbin:/sbin',
@@ -51,6 +58,8 @@ def main(argv):
             'StandardOutPath': f'/var/local/{name}.out',
             'StandardErrorPath': f'/var/local/{name}.out',
         }
+        if interval:
+            jobs[key]['StartInterval'] = interval
     else:
         jobs.pop(key, None)
     new = os.path.join(WORK, 'launchd.plist.new')
