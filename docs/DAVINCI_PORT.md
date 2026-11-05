@@ -112,7 +112,51 @@ l'autorefresh. Il tutto è compilato solo con `BOARD=davinci bash shim/build.sh`
 (`-DBOARD_DAVINCI`, `FB_H` = 2340, header boot.img con os_version 16.0.0 /
 2025-12 come quello di LineageOS).
 
-### Test 1: schermo (da fare)
+### Test 1: risultato (2026-11-05)
+
+Foto: [fase 1](davinci/boot1-phase1.jpg), [fase 2](davinci/boot1-phase2.jpg).
+
+Osservato:
+- **Fase 1 (verde): la barra scorre.** Il pannello segue il framebuffer.
+- Ma il testo riporta `pp=FFFFFFFF` e `AUTOREF rc=FFFFFFFF`: nessun pingpong
+  ha `PP_TEAR_CHECK_EN` acceso, quindi lo shim **non** ha scritto
+  `PP_AUTOREFRESH_CONFIG` né `CTL_START`. Lo schermo si aggiorna comunque: è ABL
+  a lasciare la pipeline in aggiornamento continuo.
+- Tutti i `PP` leggono `te=0 ar=0`. Il meccanismo che ABL usa per aggiornare non
+  è quindi l'autorefresh del pingpong (ipotesi: il blocco TE/autorefresh di
+  questo DPU sta altrove, oppure ABL guida l'aggiornamento in un altro modo).
+  Non serve capirlo subito: basta non toccare la pipeline.
+- **Fase 2 (blu): l'immagine si rovina** (righe verticali, bande nere, tearing
+  diagonale) appena lo shim scrive `CTL_START` a ogni frame. Il kick manuale
+  quindi va tolto.
+- Dopo la fase 2 il telefono si riavvia da solo: il reset via PSCI funziona.
+
+Registri letti (ABL, cont-splash):
+
+| Registro | Valore | Significato |
+| --- | --- | --- |
+| CTL_0 `CTL_TOP` | 0x00020000 | bit 17 = command mode |
+| CTL_0 `CTL_INTF_ACTIVE` | 0x2 | INTF_1 = DSI0 |
+| CTL_1..5 `CTL_TOP` | 0x00001F00 | inattivi |
+| SSPP 0 (VIG0) `SRC0_ADDR` | 0x9C000000 | il buffer di cont-splash |
+| `SRC_SIZE` | 0x09240438 | 2340 × 1080 |
+| `SRC_YSTRIDE0` | 0x10E0 | 4320 byte = 1080 × 4 |
+| `SRC_FORMAT` | 0x000237FF | 4 byte per pixel (stesso a8r8g8b8 di sweet: il verde e il testo hanno i colori giusti) |
+
+Conseguenza: per XNU il Mi 9T si comporta come sweet. Bastano indirizzo,
+dimensioni e stride; **nessun kick**. Lo shim ora legge soltanto i registri e
+li mostra per 8 secondi su sfondo verde.
+
+### Test 2: memoria UFS (da fare)
+
+Stesso shim, nuova versione: dopo la schermata verde dei registri del display
+esegue la sonda UFS di sweet (`shim/ufs.c`). È **sola lettura**: nel file non
+c'è nessun comando SCSI di scrittura. Mostra i registri UFSHCI lasciati da ABL
+e, se il link è attivo, legge la LUN 0. Il risultato resta sullo schermo per
+3 minuti, poi il telefono si riavvia. Serve a capire se ABL lascia la UFS
+accesa, come su sweet (passo 5 della guida).
+
+### Test 1: schermo (fatto)
 
 `fastboot boot shim/out/shim-boot.img`, senza payload. Lo shim mostra:
 1. **fase 1, sfondo verde, 15 s**: solo autorefresh. Se la barra bianca in basso
@@ -172,3 +216,11 @@ tornare al fastboot.
   viene da `dtb/boot_unpacked/dtb` (estratto dal backup di `boot`).
 - Scritto `shim/panel.c` (autorefresh) e il test dello schermo. Build davinci
   pulito, senza warning.
+- **Boot 1** (commit `a938508`): `adb reboot bootloader` → ABL fastboot
+  (`is-userspace` non esiste, quindi non è fastbootd). `fastboot boot
+  shim/out/shim-boot.img`: ABL accetta l'immagine (`Sending 524 KB OKAY`,
+  `Booting OKAY`). Risultato: vedi "Test 1: risultato". La fase 1 scorre anche
+  senza autorefresh; la fase 2 (kick manuale) rovina l'immagine; poi il
+  telefono si riavvia da solo.
+- Shim modificato: lettura dei registri del display e basta (tolti autorefresh
+  e kick), poi la sonda UFS in sola lettura.

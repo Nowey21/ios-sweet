@@ -14,5 +14,3 @@ struct panel_info {
 };
 
 void panel_probe(struct panel_info *pi);
-void panel_kick(const struct panel_info *pi);
-int panel_autorefresh(const struct panel_info *pi);

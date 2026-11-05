@@ -1,11 +1,10 @@
 /*
  * davinci: the Samsung EA panel is a DSI *command-mode* panel. It keeps its
  * own copy of the image and only updates when the DPU sends a frame, so
- * writes to the ABL splash buffer stay invisible until something kicks the
- * pipeline. ABL leaves the pipeline set up (cont-splash); we find the CTL and
- * PINGPONG it uses and turn on pingpong autorefresh, which makes the DPU
- * refetch the buffer on every TE pulse - the panel then behaves like the
- * video-mode panel on sweet, for the shim and for XNU after it.
+ * writes to the splash buffer would stay invisible until something kicks the
+ * pipeline. Boot 1 (docs/DAVINCI_PORT.md) showed that ABL leaves it refreshing
+ * by itself, and that an extra manual CTL_START corrupts the picture. So this
+ * only reads back what ABL configured, for the screen and the notes.
  *
  * Offsets: SM7150 DPU (downstream sde DT, relative to mdp_phys 0xae00000;
  * the same blocks as mainline's dpu_5_2_sm7150.h relative to 0xae01000).
@@ -19,14 +18,11 @@
 static const uint32_t sspp_off[NR_SSPP] = { 0x5000, 0x7000, 0x25000, 0x27000, 0x29000 };
 
 #define CTL_TOP			0x014
-#define CTL_FLUSH		0x018
-#define CTL_START		0x01c
 #define CTL_INTF_ACTIVE		0x0f4
 #define INTF_1_BIT		(1U << 1)	/* INTF_1 = DSI0 (qcom,sde-intf-type) */
 
 #define PP_TEAR_CHECK_EN	0x000
 #define PP_AUTOREFRESH_CONFIG	0x030
-#define AUTOREFRESH_EN		(1U << 31)
 
 #define SSPP_SRC_SIZE		0x000
 #define SSPP_SRC0_ADDR		0x014
@@ -34,7 +30,6 @@ static const uint32_t sspp_off[NR_SSPP] = { 0x5000, 0x7000, 0x25000, 0x27000, 0x
 #define SSPP_SRC_FORMAT		0x030
 
 static inline uint32_t rd32(uintptr_t a) { return *(volatile uint32_t *)a; }
-static inline void wr32(uintptr_t a, uint32_t v) { *(volatile uint32_t *)a = v; }
 
 void panel_probe(struct panel_info *pi)
 {
@@ -61,23 +56,4 @@ void panel_probe(struct panel_info *pi)
 			pi->src_format = rd32(s + SSPP_SRC_FORMAT);
 		}
 	}
-}
-
-/* One frame now (manual command-mode trigger). */
-void panel_kick(const struct panel_info *pi)
-{
-	if (pi->ctl < 0)
-		return;
-	__asm__ volatile("dsb sy" ::: "memory");
-	wr32(MDP_BASE + CTL_OFF(pi->ctl) + CTL_START, 1);
-}
-
-/* Refetch on every TE pulse from now on; 1 = every frame. */
-int panel_autorefresh(const struct panel_info *pi)
-{
-	if (pi->ctl < 0 || pi->pp < 0)
-		return -1;
-	wr32(MDP_BASE + PP_OFF(pi->pp) + PP_AUTOREFRESH_CONFIG, AUTOREFRESH_EN | 1);
-	panel_kick(pi);
-	return 0;
 }
