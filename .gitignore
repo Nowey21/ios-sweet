@@ -12,3 +12,6 @@ __pycache__/
 # davinci test photos (show the user's desk): local only
 docs/davinci/*.jpg
 logs/
+
+# Wi-Fi credentials for the phone (tools: davinci-files.py put wlan.conf ...)
+wlan.conf

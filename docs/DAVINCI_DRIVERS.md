@@ -415,3 +415,10 @@ di accendere GPU e Wi-Fi.
     (WPA2/WPA3), segnale fino a −24 dBm. Nessun panic.
 - Il touch: da verificare con l'utente in questo avvio (wland ora parte dopo
   il voto L6C del touch).
+- Boot 15: l'utente conferma che **il touch funziona** insieme a wland (che
+  ora parte dopo 90 s). Il problema di boot 14 era solo l'ordine dei voti RPMh.
+- Per collegarsi: `/var/local/wlan.conf` con `ssid=...` e `psk=...` (WPA2-PSK;
+  senza `psk` rete aperta), scritto **dall'utente** sul suo PC e caricato con
+  `tools/davinci-files.py put wlan.conf /private/var/local/wlan.conf 600`;
+  `wlan.conf` è in `.gitignore`. wland lo legge all'avvio (`auto` gira una
+  volta per avvio del telefono): dopo il caricamento serve un riavvio.
