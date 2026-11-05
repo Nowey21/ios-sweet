@@ -573,3 +573,72 @@ sono i livelli ARC (presi dall'A618 di SC7180) e lo stato del blit.
 
 Ordine di prova: `0203` (GPU spenta, controllo) → `0203g` (GPU + test) →
 `0203m` (interfaccia su GPU). Sempre `0202c` come ritorno sicuro.
+
+### Boot 16 (`0203g`, GPU accesa) e patch 0204 (2026-11-05, con l'utente)
+
+- Riavvio da remoto (`davinci-cmd.py reboot`): fastboot bloccato in "no link"
+  (il PC non vede nessuna periferica USB), Power+Vol- dell'utente, poi
+  `fastboot boot shim-boot-0203g.img`. iOS parte normalmente (live log da 73 s).
+- **Log completo del kernel senza recovery**: il ring della console
+  (`_sweet_log_ring`, 4 MB, e `_sweet_log_total`) si legge da `/dev/pmem` con
+  il file server. Indirizzi presi dalla tabella dei simboli Mach-O del kernel
+  (il `nm` di WSL non legge Mach-O): PA = VA − 0xfffffe0006000000 +
+  0x100000000; per il kernel 0203 `total` 0x101ce6710, `ring` 0x101ce6718
+  → `logs/boot16-ring.txt` (253 KB, tutto l'avvio).
+- **GPU, cosa funziona già**: voti di banda, clock GCC/GPUCC, CX GDSC acceso,
+  GMU che risponde, SMMU programmato (`smr0 → cb0`).
+- **Dove si ferma**: `gmu fw: bad block f1f00060 size 80bf00b9` → `bring-up
+  FAILED in 264 ms`. `a618_gmu.bin` (32 768 byte) è un'**immagine grezza per
+  il Cortex-M3** (vettori: SP 0x00043f80, reset 0x9), non il formato a blocchi
+  dell'A640. In Linux l'A618 è una GMU "legacy" (famiglia a630:
+  `gmu->legacy = true`, "HFI v1, has sptprac").
+- **Patch 0204** (`research/davinci-flame/gmu-0204.py` →
+  `xnu/patches/0204-davinci-a618-gmu-legacy.patch`), tutti i rami legacy di
+  Linux v6.12 (`a6xx_gmu.c`, `a6xx_hfi.c`, `a6xx_gmu.xml`, verificati sui
+  sorgenti, non a memoria):
+  - firmware intero in ITCM (≤ 0x8000 byte);
+  - dopo l'avvio della GMU: `gfx_rail_on` (BOOT_SLUMBER_OPTION 0, voto GX/MX
+    del livello più alto, OOB BOOT_SLUMBER 22/30) e `sptprac_enable`
+    (0x778000, attesa `(stato & 0x38) == 0x28`);
+  - HFI: 2 code (risposta con id 4), niente riempimento 0xfafafafa né
+    allineamento in lettura; HFI v1: INIT (buffer di debug 16 KB a GMU VA
+    0x60009000, avvio a freddo), FW_VERSION, PERF_TABLE v1 ({voto, kHz}),
+    BW_TABLE, TEST;
+  - frequenza con i registri DCVS + OOB DCVS_SET 23/31 (non HFI 30);
+  - OOB GPU_SET con i bit legacy 16/24 (A640: 30/31).
+  Registri: offset di `a6xx_gmu.xml` + 0x1a800 (numerazione di questo driver).
+  Controllare sui sorgenti è servito: BOOT_SLUMBER/VOTE_IDX/DCVS sono a
+  0x23f8–0x23ff (Linux), e l'ack di BOOT_SLUMBER è il bit 30.
+  Kernel: xnu run `42076587178` (7 min 12 s) → `xnu/out-0204/`.
+- **Wi-Fi**: wifid parte e interroga il driver, ma configd non ha **nessun
+  set né servizio di rete** (`preferences.plist` di 192 byte, solo `System`),
+  anche se `NetworkInterfaces.plist` ha `en0` (IEEE80211, "Wi-Fi"): configd
+  scrive le preferenze a 58 s, `en0` compare solo dopo l'avvio di wland
+  (~70 s), e senza un set non aggiunge le nuove interfacce. Scritto un set
+  standard ("Automatic") con un servizio Wi-Fi su `en0` (IPv4 DHCP, IPv6
+  automatico); copie in `research/sc-preferences-boot16.plist` (prima) e
+  `research/sc-preferences-wifi.plist` (dopo). Effetto al prossimo avvio.
+
+### Boot 17–18 (`0204g`) e patch 0205
+
+- Boot 17 (avviato da me): **blocco a 22 s** (niente ping). Boot 18 avviato
+  dall'utente da fastbootd (`18D1:D00D`): `fastboot boot` lì non funziona,
+  serve prima `fastboot reboot bootloader`.
+- Con la 0204 la GMU **parte**: `1 firmware blocks loaded`, `init result
+  babeface BOOTED`, `gfx rail oob acked, sptprac on (28)`. Poi **tutti** i
+  messaggi HFI, già il primo (INIT), restano senza risposta con GMU2HOST info
+  `0x800000` = bit 23 **CM3_FAULT**: il processore della GMU va in fault.
+  Il driver proseguiva comunque (DCVS e GPU_SET in timeout, GX GDSC
+  `f8222000`) e configurava anche l'SMMU della GPU: è lì che boot 17 si è
+  bloccato.
+- **Causa**: `smmu: smr0 0 -> cb0`. L'SMR scritto rilegge **0**, quindi lo
+  stream della GMU non arriva al suo context bank: la GMU parte dalla TCM,
+  ma al primo accesso alle code HFI in RAM va in fault. Come per il Wi-Fi
+  (`NOT as written` con lo stream del Pixel 4), l'SMMU di davinci accetta
+  solo lo stream esatto del DT: `gmu_kernel iommus = <&kgsl_smmu 0x5>`,
+  `gfx3d_user <&kgsl_smmu 0x0>`, **senza maschera** (flame: 0x400 e 0x401).
+- **Patch 0205** (`research/davinci-flame/smmu-0205.py` →
+  `xnu/patches/0205-davinci-gpu-smmu-streams.patch`): maschere a 0;
+  `smmu_bank` controlla che l'SMR si rilegga uguale, altrimenti fallisce;
+  se l'HFI fallisce il driver **non tocca la GPU** e stampa FSR/FAR/FSYNR0
+  del context bank della GMU (niente più blocco del telefono).

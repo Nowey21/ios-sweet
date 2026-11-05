@@ -1,0 +1,74 @@
+diff --git a/bsd/dev/sweet_a6xx.c b/bsd/dev/sweet_a6xx.c
+index cb814fa..1a3c327 100644
+--- a/bsd/dev/sweet_a6xx.c
++++ b/bsd/dev/sweet_a6xx.c
+@@ -91,9 +91,9 @@ static void zero_pa(uint64_t pa, uint64_t size)
+ #define TCR2_VAL	((7u << 15) | 2u)
+ 
+ #define GMU_SID		5
+-#define GMU_SID_MASK	0x400
++#define GMU_SID_MASK	0	/* davinci DT: <&kgsl_smmu 5>, no mask (flame 0x400) */
+ #define GPU_SID		0
+-#define GPU_SID_MASK	0x401
++#define GPU_SID_MASK	0	/* davinci DT: <&kgsl_smmu 0>, no mask (flame 0x401) */
+ 
+ #define GMEM_L1(g)	a6_pool_pa(g, 0x0000)
+ #define GMEM_L2_0(g)	a6_pool_pa(g, 0x1000)
+@@ -251,7 +251,8 @@ static void map_gmu_pages(uint64_t l3, uint32_t va, uint64_t pa, uint32_t size,
+ }
+ 
+ /* T0SZ: 32 (4 GB) for the GMU, 25 (39-bit) for the GPU; walks start at level 1 either way. */
+-static void smmu_bank(int smr, int cb, uint64_t ttbr0, uint32_t sid, uint32_t mask)
++/* 0 = the stream match took: davinci's SMMU refuses SMRs that are not the DT's exact stream (reads back 0). */
++static int smmu_bank(int smr, int cb, uint64_t ttbr0, uint32_t sid, uint32_t mask)
+ {
+ 	uint32_t t0sz = sid == GPU_SID ? 25 : 32;
+ 	uint64_t c = SMMU_CB(cb);
+@@ -269,8 +270,11 @@ static void smmu_bank(int smr, int cb, uint64_t ttbr0, uint32_t sid, uint32_t ma
+ 	wait_bit(SMMU + 0x74, 1, 0, 10);
+ 	wr32(S2CR(smr), (uint32_t)cb);
+ 	wr32(SMR(smr), (1u << 31) | (mask << 16) | sid);
+-	a6_log("smmu: smr%d %x -> cb%d cbar %x sctlr %x tcr %x tcr2 %x\n", smr, rd32(SMR(smr)), cb,
+-	       rd32(CBAR(cb)), rd32(c + CB_SCTLR), rd32(c + CB_TCR), rd32(c + CB_TCR2));
++	uint32_t want = (1u << 31) | (mask << 16) | sid;
++	a6_log("smmu: smr%d %x -> cb%d cbar %x sctlr %x tcr %x tcr2 %x%s\n", smr, rd32(SMR(smr)), cb,
++	       rd32(CBAR(cb)), rd32(c + CB_SCTLR), rd32(c + CB_TCR), rd32(c + CB_TCR2),
++	       rd32(SMR(smr)) == want ? "" : " NOT as written");
++	return rd32(SMR(smr)) == want ? 0 : -1;
+ }
+ 
+ static int smmu_pick(int32_t *smr_out, int32_t *cb_out, int cb_min)
+@@ -347,8 +351,7 @@ static int gmu_smmu(struct a6_gpu *g)
+ 	map_gmu_pages(GMEM_L3_6(g), VA_LOG, GMEM_LOG(g), A6_GMU_LOG_SIZE, 0);
+ 	map_gmu_pages(GMEM_L3_6(g), VA_HFI, GMEM_HFI(g), 0x4000, 0);
+ 	map_gmu_pages(GMEM_L3_6(g), VA_DEBUG, GMEM_DEBUG(g), 0x4000, 0);
+-	smmu_bank(g->gmu_smr, g->gmu_cb, GMEM_L1(g), GMU_SID, GMU_SID_MASK);
+-	return 0;
++	return smmu_bank(g->gmu_smr, g->gmu_cb, GMEM_L1(g), GMU_SID, GMU_SID_MASK);
+ }
+ 
+ /* a6xx_gmu_rpmh_init for the A640 and A618 (both pdc_address_offset 0x30090). */
+@@ -655,6 +658,13 @@ static int gmu_hfi(struct a6_gpu *g)
+ 	for (unsigned i = 0; i < sizeof(bw) / sizeof(bw[0]); i++)
+ 		msg[bw[i][0]] = bw[i][1];
+ 	rc |= hfi_send(g, 3, msg, 32 + 128);
++	if (rc) {
++		uint64_t c = SMMU_CB(g->gmu_cb);
++		a6_log("hfi v1 failed (%d): gmu cb%d fsr %x far %x%08x fsynr0 %x; g2h info %x; not powering the GPU\n",
++		       rc, g->gmu_cb, rd32(c + CB_FSR), rd32(c + CB_FAR + 4), rd32(c + CB_FAR), rd32(c + CB_FSYNR0),
++		       rd32(GMU_REG(GMU_G2H_INFO)));
++		return -1;
++	}
+ 	memset(msg, 0, sizeof(msg));
+ 	(void)hfi_send(g, 5, msg, 1);	/* TEST: no more HFI until the next boot (Linux ignores the result) */
+ 
+@@ -1013,7 +1023,8 @@ static int gpu_cp(struct a6_gpu *g)
+ 		return -1;
+ 	}
+ 	map_gpu_low(g);
+-	smmu_bank(g->gpu_smr, g->gpu_cb, a6_pool_pa(g, A6_OFF_GT_L1), GPU_SID, GPU_SID_MASK);
++	if (smmu_bank(g->gpu_smr, g->gpu_cb, a6_pool_pa(g, A6_OFF_GT_L1), GPU_SID, GPU_SID_MASK))
++		return -1;
+ 	return gpu_cp_init(g, false);
+ }
+ 
