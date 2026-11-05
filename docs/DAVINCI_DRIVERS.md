@@ -719,3 +719,33 @@ da 2,5–3,5 ms, nessuno perso). Mancava solo `HFI_CTRL_INIT` (0206).
     il renderer Metal di CoreAnimation non invia draw (patch m2v 0006
     "skip draws without a pipeline"?) e il formato 10 bit. Per ora resta
     `0206g` (GPU accesa, interfaccia in software) come immagine di uso.
+
+### Boot 23–24: **L'INTERFACCIA DI iOS SU METAL → TURNIP → ADRENO 618**
+
+- Causa dello schermo nero: il framebuffer 'b3a8' (BGRA10_XR). Le note di
+  ios-flame (HANDOFF, "Stage 3") lo spiegano: con il framebuffer profondo
+  CoreAnimation non disegna nulla, e servono le chiavi **globali**
+  `CAEnableDeepFramebuffer`, `CAEnableFramebufferCompression`,
+  `CAEnableIOSurfaceCompression` = NO. SweetMetal2 le scrive solo come
+  preferenze dell'app (già presenti in `com.apple.backboardd.plist`), e non
+  bastano. Aggiunte a `/private/var/mobile/Library/Preferences/
+  .GlobalPreferences.plist` (backboardd e SpringBoard girano come mobile),
+  modo 644; originale in `research/GlobalPreferences-mobile.orig.plist`.
+- Boot 23 (`0206m`): framebuffer `fmt 0x42475241` (BGRA8). backboardd invia
+  lavoro vero (fino a 191 submit ogni 5 s, GPU al 30–47%) e presenta
+  tramite GPU (`present 72/179ms`), 15–18 fps. **Interfaccia visibile**
+  (confermato dall'utente), ma "lagga tantissimo". Al primo avvio vengono
+  compilate sul telefono 137 pipeline di backboardd e 12 di SpringBoard
+  (cache in `/var/local/m2v-cache/<processo>`).
+- **CPU lente**: `pwrcl (A55 x6) index 6 kept` (1497 MHz), `perfcl (A76 x2)
+  index 0 kept` (300 MHz). Con `cpus=6` (scelta di ios-sweet) iOS usa solo i
+  sei A55. Boot-arg **`flamecpufreq=1`** (frequenza all-core più alta, senza
+  ricompilare; tensione e limiti termici restano all'OSM):
+  `A55 index 6 -> 9 (1804 MHz)`, `A76 index 0 -> 12 (2208 MHz)`, entrambi
+  rilevati correttamente. Immagine `shim/out/shim-boot-0206mf.img`
+  (sha256 `51c9f510…`, `sweetgpu=1 sweetmtl=2 flamecpufreq=1`). Boot 24:
+  **fino a 27 fps** (prima 18), GPU al 9–49%, submit da 4–10 ms in media,
+  picchi di 40–105 ms.
+- Prossimi passi per la fluidità: `cpus=8` (usare anche i due A76, mai
+  provati su davinci), GPU a 565 MHz (`sweetgpufreq=5`), profilare i
+  picchi lunghi.
