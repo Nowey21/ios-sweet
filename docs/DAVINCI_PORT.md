@@ -502,3 +502,29 @@ tornare al fastboot.
   touch no, come previsto (rail L11C di sweet invece di LDO6, AVDD/reset su
   GPIO del TLMM, GT9886 al posto del GT9896). Il primo avvio lungo era la
   migrazione dei dati: con abbastanza tempo finisce da sola.
+
+### Touch GT9886: analisi (2026-11-05)
+
+Driver di sweet (`bsd/dev/sweet_touch.c`, dall'albero patchato della run
+`42010014603`, artifact `xnu-buildtree` → `research/xnu-buildtree/`) contro il
+driver Xiaomi del Mi 9T (`MiCode/Xiaomi_Kernel_OpenSource`, ramo
+`davinci-p-oss`, `drivers/input/touchscreen/goodix_driver_gt9886/`):
+
+| | sweet (GT9896, "Yellowstone") | davinci (GT9886, "Normandy") |
+| --- | --- | --- |
+| Alimentazione | RPMh `ldoc11` 3200 mV + GPIO 90 | PM6150L **LDO6** (`vtouch-supply`) + AVDD su **GPIO 5** |
+| Reset / IRQ | GPIO 8 / GPIO 9 | GPIO 8 / GPIO 9 (uguali) |
+| Sequenza reset | basso 2 ms, alto, attesa | basso 2 ms (`udelay(2000)`), alto, 100 ms |
+| ID | 0x4022, "9896" | registro `pid` dal file di config (`reg_info.pid`) |
+| Evento | 0x4180, header 8 byte con checksum u16 BE | `reg.coor` (default `TS_REG_COORDS_BASE` 0x824E, ma il valore vero viene dal file di config), 4 + 8 byte |
+| Stato | `buf[0] & 0x80`, n = `buf[2] & 15` | `buf[0] & 0x80` (0x40 = richiesta), n = `buf[1] & 15` |
+| Punto | 8 byte: id `p[0]>>4`, x/y **BE** a +2/+4 | 8 byte da `buf[2]`: id `p[0] & 15`, x/y **LE** a +1/+3, w a +5; id ≥ 0x80 = penna |
+| Checksum | somma u16 BE in coda | somma u8 di `buf[0 .. 4+8n)` deve dare 0 |
+| Conferma | scrive 0 a 0x4180 | scrive 0 a `reg.coor` dopo ogni evento |
+| Altri punti | — | se n > 1 legge `(n-1)*8` byte da `coor + 12` |
+
+Gli indirizzi (`pid`, `coor`, `command`…) non sono nel driver: li carica da
+`goodix_gt9886_cfg_f10.bin` con `request_firmware`. Il file non è nei blob
+pubblici di LineageOS (TheMuppets ha solo i `.tporder`) né incorporato nel
+kernel di LineageOS: va letto dalla partizione vendor del telefono (intatta),
+da recovery.
