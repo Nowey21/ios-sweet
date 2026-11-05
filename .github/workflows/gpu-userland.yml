@@ -10,6 +10,7 @@ on:
     branches: [davinci]
     paths:
       - "phone/turnip/**"
+      - "phone/metal2/**"
       - ".github/workflows/gpu-userland.yml"
 
 jobs:
@@ -48,11 +49,21 @@ jobs:
           cp "$RUNNER_TEMP/turnip/build-ios/src/freedreno/vulkan/libvulkan_freedreno.dylib" out/
           ls -la out
 
+      - name: Rust + LLVM for the Metal bridge
+        run: |
+          brew install llvm rustup
+          echo "$(brew --prefix rustup)/bin" >> "$GITHUB_PATH"
+          "$(brew --prefix rustup)/bin/rustup" toolchain install 1.98.0 --profile minimal --target aarch64-apple-ios
+
+      - name: SweetMetal2.bundle (metal2vulkan bridge + Metal frontend)
+        run: bash phone/metal2/build-ci.sh "$RUNNER_TEMP/metal2" "$RUNNER_TEMP/turnip/build-ios/src/freedreno/vulkan/libvulkan_freedreno.dylib"
+
       - name: Logs on failure
         if: failure()
         run: |
           tail -n 80 "$RUNNER_TEMP/turnip/configure.log" 2>/dev/null || true
           grep -E "error:|FAILED" "$RUNNER_TEMP/turnip/build.log" 2>/dev/null | head -n 60 || true
+          grep -E "^error" -A8 "$RUNNER_TEMP/metal2/m2v-bridge/build.log" 2>/dev/null | head -n 80 || true
 
       - uses: actions/upload-artifact@v4
         with:
@@ -60,3 +71,5 @@ jobs:
           path: |
             phone/turnip/out/vktest
             phone/turnip/out/libvulkan_freedreno.dylib
+            phone/metal2/out/SweetMetal2.bundle
+            phone/metal2/out/m2vtest
