@@ -218,12 +218,31 @@ tornare al fastboot.
 1. ✅ Accesso root, backup, device tree.
 2. ✅ Shim per davinci: schermo (nessun kick necessario) e UFS verificati.
    Prova con `fastboot boot` (non scrive niente sul telefono).
-3. ⬜ ADT (`tools/mkadt.py`): 1080×2340, il resto come sweet.
-4. ⬜ Patch del kernel: 0061 (dimensioni), 0060/0062/0063 (touch GT9886,
-   LDO6, GPIO AVDD), console e copia del framebuffer con kick.
-5. ⬜ Build di XNU su GitHub Actions (fork del repo sull'account dell'utente).
-6. ⬜ Root di iOS: IPSW iPhone X 16.7.16 da Apple, `mkiosroot.sh` in WSL.
-7. ⬜ Flash su `userdata` (**cancella Android**), primo boot, log da recovery.
+3. 🔄 Build di XNU su GitHub Actions: fork
+   [Nowey21/ios-sweet](https://github.com/Nowey21/ios-sweet), ramo `davinci`,
+   prima build = kernel SWEET senza modifiche (run `42010014603`).
+4. 🔄 Root di iOS: IPSW iPhone X 16.7.16 da Apple (download in corso),
+   poi `mkiosroot.sh` in WSL.
+5. ⬜ ADT (`tools/mkadt.py`) per il primo boot: come sweet (ipotesi: va bene
+   così); poi 1080×2340.
+6. ⬜ Flash su `userdata` (**cancella Android**, da confermare con l'utente
+   prima di farlo), primo boot, log da recovery.
+7. ⬜ Patch del kernel per davinci (tabella sopra): schermo 2340, touch GT9886.
+
+## Handoff (per chi riprende il lavoro)
+
+- Questo file è il registro del port davinci; `NOTES.md` resta quello di sweet.
+- L'approvazione a cancellare Android citata in `AGENTS.md` (2026-10-15) è
+  dell'autore di sweet, **non** dell'utente di questo port: ogni passo
+  distruttivo su davinci va confermato di nuovo.
+- File locali esclusi da git: `backup/` (partizioni), `dtb/` (device tree,
+  cmdline), `research/ipsw-x/` (IPSW di Apple), `docs/davinci/*.jpg` (foto
+  dei test, ritraggono la scrivania dell'utente).
+- Build Ubuntu in WSL: `wsl -d Ubuntu -u root`, repo in
+  `/mnt/c/Users/ciaoc/Desktop/ios mi9t k20/ios-sweet`,
+  shim con `BOARD=davinci bash shim/build.sh`.
+- Remote: `origin` = dipa-studio/ios-sweet, `fork` = Nowey21/ios-sweet (gh
+  autenticato come Nowey21).
 
 ## Diario
 
@@ -272,3 +291,15 @@ tornare al fastboot.
   shim/out/shim-boot.img` → `Booting OKAY`. Schermata verde dei registri, poi
   la sonda UFS: link attivo, letture riuscite, GPT e `userdata` trovate
   (vedi "Test 2: risultato").
+- Installato GitHub CLI (`winget install GitHub.cli`, gh 2.103.3). Login web
+  fatto dall'utente: account `Nowey21`, scope `repo` e `workflow`.
+- Foto dei test tolte dalla cronologia git (`git filter-branch` sui commit
+  davinci, mai pubblicati prima) e aggiunte a `.gitignore`. Attenzione:
+  filter-branch le aveva cancellate anche dalla cartella; ripristinate dagli
+  upload della chat.
+- Fork pubblico `Nowey21/ios-sweet` creato, ramo `davinci` caricato. Actions
+  abilitate sul fork. Avviato `gh workflow run xnu.yml --ref davinci`: run
+  `42010014603` (kernel SWEET DEVELOPMENT, nessuna patch davinci).
+- IPSW: `iPhone10,3,iPhone10,6_16.7.16_20H392_Restore.ipsw`, 6 171 035 648
+  byte, da `updates.cdn-apple.com` (URL e SHA-1 `5606c298…0193` da
+  api.ipsw.me). Download in corso in `research/ipsw-x/`.
