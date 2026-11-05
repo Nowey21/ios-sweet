@@ -112,3 +112,18 @@ le rail e lo stato del chip.
   `usbip-core.ko`, `usbnet.ko`, `cdc_ether.ko`) sono già compilati con gcc 13
   in `/root/wslk` (stesso build del modulo hfsplus).
 - Immagine `shim/out/shim-boot-0083-usb.img` = 0083 + `sweetusb=2`.
+- usbipd-win 5.3.0 installato (winget, UAC accettato dall'utente).
+- **Boot 9** (`shim-boot-0083-usb.img`): Windows vede `1209:0001 Sweet iOS
+  (USB Ethernet)` → la funzione USB di sweet parte anche su davinci.
+  `usbipd bind` (UAC) + `usbipd attach --wsl`.
+- In WSL servono i moduli **ufficiali** (`modprobe vhci-hcd cdc_ether`):
+  quelli compilati da noi non si caricano perché `usbcore` è un modulo
+  (`CONFIG_USB=m`) e non era caricato. Attenzione: la VM di WSL si spegne
+  quando nessun processo la usa e perde moduli e collegamento USB; si tiene
+  accesa con `wsl -d Ubuntu -- sleep infinity` in background.
+- `cdc_ether` crea `enx02005e77ee01` (MAC host 02:00:5e:77:ee:01), alt setting
+  1 della data interface selezionato, endpoint bulk 0x81/0x01 da 512 byte. Ma
+  il ping non passa: ARP `INCOMPLETE`, TX 0 pacchetti / 19 errori, nel dmesg
+  `vhci_hcd: urb->status -104` (URB bulk annullati dopo il timeout). Il
+  controllo (EP0) funziona, i trasferimenti bulk no. Da capire dal log del
+  telefono se il lato iOS arma gli endpoint ("ECM endpoints configured").
