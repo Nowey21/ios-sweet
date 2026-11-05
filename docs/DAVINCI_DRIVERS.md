@@ -692,3 +692,30 @@ da 2,5–3,5 ms, nessuno perso). Mancava solo `HFI_CTRL_INIT` (0206).
   var/local/bin/v2test`. Rifatti (`v2test` all'avvio, `vktest` ogni 120 s);
   `davinci-launchd-job.py` ora rifiuta un PROGRAM che non inizia con `/`.
   Girano al prossimo avvio.
+
+### Boot 21–22: test GPU **ALL PASS**; Metal per l'interfaccia: schermo nero
+
+- Boot 21 (`0206g`): v2test `FAIL open`, vktest `no physical device`.
+  `IOAcceleratorES` (SweetAccelerator) viene pubblicato **solo con
+  `sweetmtl=1|2`** (SweetAccelerator.cpp): senza, né Metal né i test trovano
+  la GPU.
+- Boot 22 (`shim/out/shim-boot-0206m.img`, sha256 `57827f33…`, `sweetgpu=1
+  sweetmtl=2`): `IOAcceleratorES published (MetalPluginName SweetMetal2)`.
+  - **v2test: ALL PASS** (`logs/boot22-v2test.out`): coerenza CPU/GPU su
+    16384 parole, seconda mappatura, `CP_MEM_WRITE` in buffer WC e in
+    memoria importata, 0 fault.
+  - **vktest: ALL PASS** (`logs/boot22-vktest.out`): `Turnip Adreno (TM) 618,
+    Vulkan 1.3.354`, device in 28–92 ms, submit vuoto 0,11 ms, fill+copy 1 MB
+    esatto in 0,95 ms, compute shader compilato sul telefono (3–16 ms)
+    esatto, triangolo 256×256 con pipeline compilata sul telefono (7–10 ms)
+    con i pixel giusti.
+  - Metal: `device Turnip Adreno (TM) 618` creato in backboardd (1,9 s) e
+    SpringBoard (6,6 s); 19 pipeline di backboardd compilate (`ok=1`).
+  - **Schermo nero** (riferito dall'utente). Gli swap arrivano (fino a
+    60 fps, copie sul pannello), ma backboardd non manda quasi nessun
+    lavoro alla GPU (`5s: 1–6 submits`), quindi le superfici restano vuote.
+    Le superfici sono `fmt 0x62336138` ('b3a8', 10 bit) 1125×2436 e
+    `GPU present not used: surface format/size/pitch`. Da indagare: perché
+    il renderer Metal di CoreAnimation non invia draw (patch m2v 0006
+    "skip draws without a pipeline"?) e il formato 10 bit. Per ora resta
+    `0206g` (GPU accesa, interfaccia in software) come immagine di uso.
