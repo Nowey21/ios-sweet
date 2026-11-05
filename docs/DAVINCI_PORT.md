@@ -528,3 +528,40 @@ Gli indirizzi (`pid`, `coor`, `command`…) non sono nel driver: li carica da
 pubblici di LineageOS (TheMuppets ha solo i `.tporder`) né incorporato nel
 kernel di LineageOS: va letto dalla partizione vendor del telefono (intatta),
 da recovery.
+
+### Touch GT9886: patch 0082 (2026-11-05)
+
+Gli indirizzi del GT9886 **non** sono sul telefono come file (`vendor/firmware`
+ha solo i due `.tporder`; il super di davinci è "retrofit", diviso fra
+`system`, `vendor` e `cust`: estratto con il nuovo `tools/lpextract.py`). Sono
+**incorporati nel kernel di LineageOS** come pacchetto di configurazione
+(`normandy`, `9886`) nell'Image di `backup/boot.img`. La `reg_info` decodificata:
+
+| Campo | Indirizzo | Note |
+| --- | --- | --- |
+| `cfg_send_flag` | 0x4542 | |
+| `version_base` | 0x452C | 0x48 byte, somma u8 = 0 |
+| `pid` | 0x4535 | 4 byte, "9886" |
+| `vid` | 0x453D | 4 byte |
+| `sensor_id` | 0x4541 | maschera 0x0F |
+| `cfg_addr` | 0x6F78 | |
+| `esd` | 0x30F3 | |
+| `command` | 0x6F68 | |
+| `coor` | **0x4100** | report del touch |
+
+Patch `xnu/patches/0082-davinci-gt9886-touch.patch` (generata con
+`diff -u` sull'albero già patchato della run `42010014603`, verificata con
+`patch --dry-run`):
+- `sweet_touch.c`: con il boot-arg **`sweetboard=davinci`** il driver salta la
+  sequenza di sweet ed esegue quella di davinci: IRQ GPIO 9 in ingresso,
+  reset GPIO 8 basso, **AVDD GPIO 5 alto**, voto RPMh **`ldoc6` a 3000 mV**,
+  300 ms, pin qup11 (6/7), reset basso 2 ms → alto → 150 ms. Sonda: PID a
+  0x4535 deve essere "9886" (stampa anche la somma del blocco versione).
+  Lettura report Normandy a 0x4100 (4 + 8n byte, coordinate LE, checksum u8,
+  penna ignorata), conferma con 0 a 0x4100, y fino a 2339. Senza il boot-arg
+  il comportamento di sweet non cambia.
+- `sweet_rpmh.c`: accetta anche `ldoc6` (2950–3100 mV, il massimo di L6 nel DT
+  è 3,1 V) oltre a `ldoc11`.
+- Le coordinate del pannello passano invariate: la patch 0061 mostra le righe
+  18…2357 della tela 1125×2436 e somma lo stesso offset al touch, quindi la
+  riga y del pannello corrisponde a quella disegnata.

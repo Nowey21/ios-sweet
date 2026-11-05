@@ -1,0 +1,212 @@
+--- a/bsd/dev/sweet_touch.c
++++ b/bsd/dev/sweet_touch.c
+@@ -4,6 +4,8 @@
+  * Requires ABL-loaded GENI I2C firmware; votes L11C through sweet_rpmh.c.
+  * No firmware/config upload or direct PMIC writes. Only IC data write:
+  * zero to GT9896's event status after reading a report. See touch2/report.md.
++ * davinci (boot-arg sweetboard=davinci): GT9886 Normandy on the same bus and
++ * pins, powered by L6C plus an AVDD enable GPIO; see docs/DAVINCI_PORT.md.
+  */
+ #if defined(ARM64_BOARD_CONFIG_SWEET)
+ #include <sys/param.h>
+@@ -37,6 +39,15 @@
+ #define GOODIX_EVENT_REG 0x4180u
+ #define GOODIX_HEAD_LEN  8u
+ #define GOODIX_POINT_LEN 8u
++/* davinci GT9886: reg_info of the cfg package built into the LineageOS
++ * davinci kernel (pid 0x4535/4, version 0x452c/0x48, coor 0x4100). */
++#define TOUCH_GT9886     3
++#define GT9886_PID_REG   0x4535u
++#define GT9886_VER_REG   0x452cu
++#define GT9886_VER_LEN   0x48u
++#define GT9886_COOR_REG  0x4100u
++#define GT9886_HEAD_LEN  4u
++#define GT9886_MAX_Y     2339u
+ 
+ #define SE_STATUS       0x040u
+ #define SE_MCLK         0x048u
+@@ -73,7 +84,7 @@
+ 
+ static struct {
+ 	vm_offset_t se, gcc, gpio;
+-	bool started, dead, probing;
++	bool started, dead, probing, davinci;
+ 	int kind, irq_hint;
+ 	uint32_t irq_status, irq_last, active;
+ 	unsigned sent, got;
+@@ -441,6 +452,79 @@
+ }
+ 
+ static int
++touch_gt9886_ack(void)
++{
++	const uint8_t ack[3] = {GT9886_COOR_REG >> 8, GT9886_COOR_REG & 0xffu, 0};
++	return touch_msg(0x5d, ack, sizeof(ack), NULL, 0, false);
++}
++
++/*
++ * Normandy report at coor: status, touch state (count in the low nibble),
++ * then 8-byte points (id, x LE16, y LE16, width, ...), key and checksum;
++ * the u8 sum of the first 4 + 8n bytes is 0. Status is cleared after every
++ * event, as the vendor IRQ thread does.
++ */
++static int
++touch_gt9886(void)
++{
++	uint8_t buf[GT9886_HEAD_LEN + GOODIX_POINT_LEN * TOUCH_MAX];
++	int x[TOUCH_MAX] = {0}, y[TOUCH_MAX] = {0};
++	uint32_t mask = 0;
++	int err = touch_read(0x5d, GT9886_COOR_REG, true, buf,
++	    GT9886_HEAD_LEN + GOODIX_POINT_LEN);
++	if (err) {
++		return err;
++	}
++	if (!buf[0]) {
++		return 0; /* no event: retain current contacts */
++	}
++	if (!(buf[0] & 0x80u)) {
++		(void)touch_gt9886_ack(); /* request/gesture: not serviced */
++		return 0;
++	}
++	unsigned n = buf[1] & 15u;
++	if (n > TOUCH_MAX) {
++		(void)touch_gt9886_ack();
++		return EIO;
++	}
++	if (n > 1) {
++		err = touch_read(0x5d, GT9886_COOR_REG + GT9886_HEAD_LEN + GOODIX_POINT_LEN, true,
++		    buf + GT9886_HEAD_LEN + GOODIX_POINT_LEN, (n - 1) * GOODIX_POINT_LEN);
++		if (err) {
++			return err;
++		}
++	}
++	uint8_t sum = 0;
++	for (unsigned i = 0; i < GT9886_HEAD_LEN + n * GOODIX_POINT_LEN; ++i) {
++		sum += buf[i];
++	}
++	if (sum) {
++		(void)touch_gt9886_ack();
++		return EIO;
++	}
++	for (unsigned i = 0; i < n; ++i) {
++		const uint8_t *p = buf + 2 + i * GOODIX_POINT_LEN;
++		if (p[0] >= 0x80u) {
++			continue; /* pen record */
++		}
++		unsigned id = p[0] & 15u;
++		unsigned px = p[1] | ((unsigned)p[2] << 8), py = p[3] | ((unsigned)p[4] << 8);
++		if (id >= TOUCH_MAX || (mask & (1u << id)) || px > 1079 || py > GT9886_MAX_Y) {
++			(void)touch_gt9886_ack();
++			return EIO;
++		}
++		mask |= 1u << id;
++		x[id] = (int)px;
++		y[id] = (int)py;
++	}
++	err = touch_gt9886_ack();
++	if (!err) {
++		touch_report(mask, x, y);
++	}
++	return err;
++}
++
++static int
+ touch_focaltech(void)
+ {
+ 	uint8_t buf[63];
+@@ -569,6 +653,9 @@
+ 	if (!touch_clocks() || !touch_se_init()) {
+ 		goto out;
+ 	}
++	if (st.davinci) {
++		goto davinci;
++	}
+ 	printf("SWEET TOUCH: TLMM reset=%#x irq=%#x vdd90=%#x; voting L11C through RPMh\n",
+ 	    touch_rd(st.gpio, TOUCH_GPIO_IO(8)), touch_rd(st.gpio, TOUCH_GPIO_IO(9)),
+ 	    touch_rd(st.gpio, TOUCH_GPIO_IO(90)));
+@@ -610,12 +697,58 @@
+ 	st.kind = goodix ? TOUCH_GOODIX : TOUCH_FTS;
+ 	printf("SWEET TOUCH: selected %s, 1080x2400, poll=10ms irq-hint=%d\n",
+ 	    goodix ? "GT9896 Yellowstone" : "Focaltech 54:52", st.irq_hint);
++	goto poll;
++davinci:
++	printf("SWEET TOUCH: davinci TLMM reset=%#x irq=%#x avdd=%#x; voting L6C through RPMh\n",
++	    touch_rd(st.gpio, TOUCH_GPIO_IO(8)), touch_rd(st.gpio, TOUCH_GPIO_IO(9)),
++	    touch_rd(st.gpio, TOUCH_GPIO_IO(5)));
++	touch_gpio(9, 0, 3, 3, false, false); /* IRQ input, 8 mA, pull-up (pmx_ts_active) */
++	touch_gpio(8, 0, 3, 3, true, false);  /* hold reset while powering up */
++	/* Vendor power-on order: AVDD enable GPIO, then vtouch (L6C) at 3.0 V,
++	 * then goodix,power-on-delay-us (300 ms). */
++	touch_gpio(5, 0, 0, 0, true, true);
++	int l6_error = sweet_rpmh_vreg_enable("ldoc6", 3000);
++	if (l6_error) {
++		printf("SWEET TOUCH: L6C RPMh enable failed %d; probes skipped\n", l6_error);
++		goto out;
++	}
++	touch_wait(300);
++	touch_gpio(6, 1, 0, 0, false, false); /* qup11 SDA/SCL, 2 mA */
++	touch_gpio(7, 1, 0, 0, false, false);
++	/* Normandy hw reset: low 2 ms, high, 100 ms (150 here). */
++	touch_gpio(8, 0, 3, 3, true, false);
++	touch_wait(2);
++	touch_gpio(8, 0, 3, 3, true, true);
++	touch_wait(150);
++	{
++		uint8_t pid[4], ver[GT9886_VER_LEN], sum = 0;
++		memset(pid, 0xa5, sizeof(pid));
++		memset(ver, 0xa5, sizeof(ver));
++		st.probing = true;
++		int pe = touch_read(0x5d, GT9886_PID_REG, true, pid, sizeof(pid));
++		int ve = touch_read(0x5d, GT9886_VER_REG, true, ver, sizeof(ver));
++		st.probing = false;
++		for (unsigned i = 0; i < sizeof(ver); ++i) {
++			sum += ver[i];
++		}
++		printf("SWEET TOUCH: probe GT9886 err=%d/%d pid=%02x%02x%02x%02x version-sum=%#x irq=%#x\n",
++		    pe, ve, pid[0], pid[1], pid[2], pid[3], sum, st.irq_status);
++		if (st.dead || pe || memcmp(pid, "9886", 4)) {
++			printf("SWEET TOUCH: no GT9886 at 0x5d; stopping\n");
++			goto out;
++		}
++	}
++	st.kind = TOUCH_GT9886;
++	printf("SWEET TOUCH: selected GT9886 Normandy, 1080x2340, poll=10ms irq-hint=%d\n",
++	    st.irq_hint);
++poll:;
+ 	unsigned errors = 0, ticks = 0;
+ 	while (!st.dead) {
+ 		/* Optional IRQ hint still reads every 100ms, and always while down. */
+ 		if (!st.irq_hint || st.active || !(touch_rd(st.gpio, TOUCH_GPIO_IO(9)) & 1u) ||
+ 		    (++ticks % 10u) == 0) {
+-			int err = st.kind == TOUCH_GOODIX ? touch_goodix() : touch_focaltech();
++			int err = st.kind == TOUCH_GT9886 ? touch_gt9886() :
++			    st.kind == TOUCH_GOODIX ? touch_goodix() : touch_focaltech();
+ 			if (err) {
+ 				if ((errors++ % 100u) == 0) {
+ 					printf("SWEET TOUCH: report err=%d irq=%#x\n", err, st.irq_status);
+@@ -646,6 +779,10 @@
+ 	st.started = true;
+ 	(void)PE_parse_boot_argn("sweettouch", &enabled, sizeof(enabled));
+ 	(void)PE_parse_boot_argn("sweettouchirq", &st.irq_hint, sizeof(st.irq_hint));
++	char board[16] = "";
++	if (PE_parse_boot_argn("sweetboard", board, sizeof(board)) && !strcmp(board, "davinci")) {
++		st.davinci = true;
++	}
+ 	if (!enabled) {
+ 		printf("SWEET TOUCH: disabled (sweettouch=0)\n");
+ 		return;
+--- a/bsd/dev/sweet_rpmh.c
++++ b/bsd/dev/sweet_rpmh.c
+@@ -328,8 +328,10 @@
+ sweet_rpmh_vreg_enable(const char *res, unsigned mv)
+ {
+ 	/* Board-specific helper: do not apply PMIC5-LDO policy to arbitrary resources. */
+-	if (!res || strcmp(res, "ldoc11") || mv < 2950 || mv > 3400) {
+-		printf("SWEET RPMH: expected ldoc11 and 2950..3400 mV\n");
++	/* ldoc11: sweet touch rail; ldoc6: davinci touch rail (PM6150L L6, max 3.1 V). */
++	if (!res || (strcmp(res, "ldoc11") && strcmp(res, "ldoc6")) || mv < 2950 ||
++	    mv > (strcmp(res, "ldoc6") ? 3400u : 3100u)) {
++		printf("SWEET RPMH: expected ldoc11 (2950..3400 mV) or ldoc6 (2950..3100 mV)\n");
+ 		return EINVAL;
+ 	}
+ 	if (__atomic_exchange_n(&rh_lock, 1, __ATOMIC_ACQUIRE)) {
