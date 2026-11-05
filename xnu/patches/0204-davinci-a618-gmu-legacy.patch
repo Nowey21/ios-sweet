@@ -1,0 +1,225 @@
+diff --git a/bsd/dev/sweet_a6xx.c b/bsd/dev/sweet_a6xx.c
+index 0e43ffb..cb814fa 100644
+--- a/bsd/dev/sweet_a6xx.c
++++ b/bsd/dev/sweet_a6xx.c
+@@ -105,6 +105,7 @@ static void zero_pa(uint64_t pa, uint64_t size)
+ #define GMEM_DUMMY(g)	a6_pool_pa(g, 0x90000)
+ #define GMEM_LOG(g)	a6_pool_pa(g, A6_GMEM_LOG_OFF)
+ #define GMEM_HFI(g)	a6_pool_pa(g, 0x95000)
++#define GMEM_DEBUG(g)	a6_pool_pa(g, 0x99000)	/* legacy GMU debug buffer, 16 KB */
+ 
+ #define VA_ICACHE	0x4000u
+ #define VA_DCACHE	0x44000u
+@@ -112,6 +113,7 @@ static void zero_pa(uint64_t pa, uint64_t size)
+ #define VA_DUMMY	0x60000000u
+ #define VA_LOG		A6_GMU_LOG_VA
+ #define VA_HFI		0x60005000u
++#define VA_DEBUG	0x60009000u
+ 
+ #define RSCC		(0x0506a000ull + 0x23000)	/* davinci GMU + 0x23000 */
+ #define RSCC_REG(o)	(RSCC + 4ull * (o))
+@@ -139,6 +141,16 @@ static void zero_pa(uint64_t pa, uint64_t size)
+ #define GMU_G2H_CLR	0x1f991
+ #define GMU_G2H_INFO	0x1f992
+ #define GMU_H2G_SET	0x1f994
++/* legacy GMU (A618): Linux a6xx_gmu.xml + 0x1a800 */
++#define GMU_SPTPRAC_CTRL	0x1a881	/* GX_SPTPRAC_POWER_CONTROL */
++#define GMU_SPTPRAC_STATUS	0x1f8d0	/* SPTPRAC_PWR_CLK_STATUS */
++#define GMU_BOOT_SLUMBER	0x1cbf8	/* BOOT_SLUMBER_OPTION */
++#define GMU_GX_VOTE_IDX	0x1cbf9
++#define GMU_MX_VOTE_IDX	0x1cbfa
++#define GMU_DCVS_ACK	0x1cbfc
++#define GMU_DCVS_PERF	0x1cbfd
++#define GMU_DCVS_BW	0x1cbfe
++#define GMU_DCVS_RETURN	0x1cbff
+ 
+ #define RBBM_STATUS		0x210
+ #define RBBM_INT_STATUS		0x201
+@@ -334,6 +346,7 @@ static int gmu_smmu(struct a6_gpu *g)
+ 	map_gmu_pages(GMEM_L3_6(g), VA_DUMMY, GMEM_DUMMY(g), 0x1000, 0);
+ 	map_gmu_pages(GMEM_L3_6(g), VA_LOG, GMEM_LOG(g), A6_GMU_LOG_SIZE, 0);
+ 	map_gmu_pages(GMEM_L3_6(g), VA_HFI, GMEM_HFI(g), 0x4000, 0);
++	map_gmu_pages(GMEM_L3_6(g), VA_DEBUG, GMEM_DEBUG(g), 0x4000, 0);
+ 	smmu_bank(g->gmu_smr, g->gmu_cb, GMEM_L1(g), GMU_SID, GMU_SID_MASK);
+ 	return 0;
+ }
+@@ -369,16 +382,16 @@ static void hfi_table(struct a6_gpu *g)
+ {
+ 	uint64_t t = GMEM_HFI(g);
+ 	wr32(t + 0, 0);
+-	wr32(t + 4, 6 * 4 + 3 * 12 * 4);
++	wr32(t + 4, 6 * 4 + 2 * 12 * 4);
+ 	wr32(t + 8, 6);
+ 	wr32(t + 12, 12);
+-	wr32(t + 16, 3);
+-	wr32(t + 20, 3);
+-	for (uint32_t q = 0; q < 3; q++) {
++	wr32(t + 16, 2);
++	wr32(t + 20, 2);
++	for (uint32_t q = 0; q < 2; q++) {	/* legacy: command 0, response id 4 */
+ 		uint64_t h = t + 24 + 48 * q;
+ 		wr32(h + 0, 1);
+ 		wr32(h + 4, VA_HFI + 0x1000 * (q + 1));
+-		wr32(h + 8, (10u << 8) | q);
++		wr32(h + 8, (10u << 8) | (q ? 4u : 0u));
+ 		wr32(h + 12, 0x1000 >> 2);
+ 		wr32(h + 24, 1);
+ 		wr32(h + 28, 1);
+@@ -392,31 +405,14 @@ static int fw_load(struct a6_gpu *g)
+ 	const uint8_t *fw = a6_firmware("a618_gmu.bin", &len);	/* davinci vendor /firmware */
+ 	if (!fw)
+ 		return -1;
+-	const uint8_t *p = fw, *end = fw + len;
+-	int n = 0;
+-	while (p + 16 <= end) {
+-		uint32_t addr, size;
+-		memcpy(&addr, p, 4);
+-		memcpy(&size, p + 4, 4);
+-		const uint8_t *data = p + 16;
+-		uint64_t dst = 0;
+-		if (addr < 0x4000)
+-			dst = GMU_REG(GMU_ITCM) + addr;
+-		else if (addr >= 0x40000 && addr < 0x44000)
+-			dst = GMU_REG(GMU_DTCM) + (addr - 0x40000);
+-		else if (addr >= VA_ICACHE && addr + size <= VA_ICACHE + CACHE_SIZE)
+-			dst = GMEM_ICACHE(g) + (addr - VA_ICACHE);
+-		else if (addr >= VA_DCACHE && addr + size <= VA_DCACHE + CACHE_SIZE)
+-			dst = GMEM_DCACHE(g) + (addr - VA_DCACHE);
+-		if (!dst || data + size > end) {
+-			a6_log("gmu fw: bad block %x size %x\n", addr, size);
+-			return -1;
+-		}
+-		a6_write(dst, data, (size + 3) & ~3u);
+-		p = data + size;
+-		n++;
++	/* Legacy GMU (A618): one raw Cortex-M3 image for ITCM, no blocks (Linux a6xx_gmu_fw_load). */
++	(void)g;
++	if (len > 0x8000) {
++		a6_log("gmu fw: %u bytes, more than the 32 KB ITCM\n", len);
++		return -1;
+ 	}
+-	return n;
++	a6_write(GMU_REG(GMU_ITCM), fw, (len + 3) & ~3u);
++	return 1;
+ }
+ 
+ static int gmu_boot(struct a6_gpu *g)
+@@ -566,8 +562,6 @@ static int hfi_send(struct a6_gpu *g, uint32_t id, uint32_t *msg, uint32_t dword
+ 		wr32(QDATA(g, HFI_Q_CMD) + 4 * w, msg[i]);
+ 		w = (w + 1) % QSIZE;
+ 	}
+-	for (; w % 4; w = (w + 1) % QSIZE)
+-		wr32(QDATA(g, HFI_Q_CMD) + 4 * w, 0xfafafafa);
+ 	wr32(h + 44, w);
+ 	wr32(GMU_REG(GMU_H2G_SET), 1);
+ 
+@@ -582,7 +576,6 @@ static int hfi_send(struct a6_gpu *g, uint32_t id, uint32_t *msg, uint32_t dword
+ 					buf[i] = rd32(QDATA(g, HFI_Q_RESP) + 4 * r);
+ 					r = (r + 1) % QSIZE;
+ 				}
+-				r = ((r + 3) & ~3u) % QSIZE;
+ 				wr32(rh + 40, r);
+ 				if ((hdr & 0xff) != 100 && (buf[1] >> 20) == seq)
+ 					return (int)buf[2];
+@@ -594,6 +587,15 @@ static int hfi_send(struct a6_gpu *g, uint32_t id, uint32_t *msg, uint32_t dword
+ 	return -1;
+ }
+ 
++/* a6xx_gmu_set_oob: request bit in HOST2GMU, ack bit in GMU2HOST (then cleared). 0 = acked. */
++static int oob_set(unsigned req, unsigned ack)
++{
++	wr32(GMU_REG(GMU_H2G_SET), 1u << req);
++	int rc = wait_bit(GMU_REG(GMU_G2H_INFO), 1u << ack, 1, 100);
++	wr32(GMU_REG(GMU_G2H_CLR), 1u << ack);
++	return rc;
++}
++
+ static int gmu_hfi(struct a6_gpu *g)
+ {
+ 	static uint32_t msg[256];
+@@ -602,19 +604,45 @@ static int gmu_hfi(struct a6_gpu *g)
+ 		a6_log("hfi: cmd-db levels not found\n");
+ 		return -1;
+ 	}
++	/* a6xx_gmu_gfx_rail_on: lowest boot option, GX/MX vote of the highest level, OOB BOOT_SLUMBER */
++	wr32(GMU_REG(GMU_BOOT_SLUMBER), 0);
++	wr32(GMU_REG(GMU_GX_VOTE_IDX), gx[5] & 0xff);
++	wr32(GMU_REG(GMU_MX_VOTE_IDX), (gx[5] >> 8) & 0xff);
++	int rail = oob_set(22, 30);
++	/* a6xx_sptprac_enable (legacy: the CPU powers SP/TP) */
++	wr32(GMU_REG(GMU_SPTPRAC_CTRL), 0x778000);
++	int sptp = -1;
++	for (int i = 0; i < 100 && sptp; i++) {
++		if ((rd32(GMU_REG(GMU_SPTPRAC_STATUS)) & 0x38) == 0x28)
++			sptp = 0;
++		else
++			a6_delay_ms(1);
++	}
++	a6_log("gmu: gfx rail oob %s, sptprac %s (%x)\n", rail ? "TIMEOUT" : "acked", sptp ? "TIMEOUT" : "on",
++	       rd32(GMU_REG(GMU_SPTPRAC_STATUS)));
++
++	/* a6xx_hfi_start_v1 */
++	memset(msg, 0, sizeof(msg));
++	msg[1] = 0;			/* seg_id */
++	msg[2] = VA_DEBUG;
++	msg[3] = 0x4000;
++	msg[4] = 1;			/* GMU_COLD_BOOT */
++	int rc = hfi_send(g, 0, msg, 5);
++	memset(msg, 0, sizeof(msg));
++	msg[1] = (1u << 28) | (1u << 19) | (1u << 17);	/* FW_VERSION: supported 1.10 */
++	rc |= hfi_send(g, 1, msg, 2);
+ 	memset(msg, 0, sizeof(msg));
+ 	msg[1] = 6;
+ 	msg[2] = 2;
+-	for (int i = 0; i < 6; i++) {
+-		msg[3 + 3 * i] = gx[i];
+-		msg[4 + 3 * i] = 0xffffffff;
+-		msg[5 + 3 * i] = gpu_khz[i];
++	for (int i = 0; i < 6; i++) {		/* PERF_TABLE v1: {vote, kHz} x 16, then x 4 */
++		msg[3 + 2 * i] = gx[i];
++		msg[4 + 2 * i] = gpu_khz[i];
+ 	}
+ 	for (int i = 0; i < 2; i++) {
+-		msg[3 + 48 + 2 * i] = cx[i];
+-		msg[4 + 48 + 2 * i] = gmu_khz[i];
++		msg[3 + 32 + 2 * i] = cx[i];
++		msg[4 + 32 + 2 * i] = gmu_khz[i];
+ 	}
+-	int rc = hfi_send(g, 4, msg, 3 + 48 + 8);
++	rc |= hfi_send(g, 4, msg, 3 + 32 + 8);
+ 
+ 	memset(msg, 0, sizeof(msg));
+ 	/* a618_build_bw_table (A640: 3 CNOC commands at 0x50034/0x5007c/0x5004c) */
+@@ -627,19 +655,20 @@ static int gmu_hfi(struct a6_gpu *g)
+ 	for (unsigned i = 0; i < sizeof(bw) / sizeof(bw[0]); i++)
+ 		msg[bw[i][0]] = bw[i][1];
+ 	rc |= hfi_send(g, 3, msg, 32 + 128);
+-	msg[1] = 0;
+-	rc |= hfi_send(g, 14, msg, 2);
+-	rc |= hfi_send(g, 10, msg, 1);
++	memset(msg, 0, sizeof(msg));
++	(void)hfi_send(g, 5, msg, 1);	/* TEST: no more HFI until the next boot (Linux ignores the result) */
++
++	/* a6xx_gmu_set_freq, legacy: DCVS registers, then OOB DCVS_SET set + clear */
+ 	uint32_t lvl = g->perf_level >= 1 && g->perf_level <= 5 ? g->perf_level : 1;
+-	msg[1] = 1;
+-	msg[2] = lvl;			/* index into gpu_khz */
+-	msg[3] = 0;
+-	rc |= hfi_send(g, 30, msg, 4);
+-	a6_log("hfi: perf/bw tables, core fw start, start, perf vote %u MHz -> %d\n", gpu_khz[lvl] / 1000, rc);
+-
+-	wr32(GMU_REG(GMU_H2G_SET), 1u << 30);	/* OOB GPU_SET */
+-	int ack = wait_bit(GMU_REG(GMU_G2H_INFO), 1u << 31, 1, 1000);
+-	wr32(GMU_REG(GMU_G2H_CLR), 1u << 31);
++	wr32(GMU_REG(GMU_DCVS_ACK), 0);
++	wr32(GMU_REG(GMU_DCVS_PERF), (3u << 28) | lvl);	/* index into gpu_khz */
++	wr32(GMU_REG(GMU_DCVS_BW), 0xff);		/* let the GMU pick the bus vote */
++	int dcvs = oob_set(23, 31);
++	wr32(GMU_REG(GMU_H2G_SET), 1u << 31);		/* clear DCVS_SET */
++	a6_log("hfi v1: init, version, perf/bw tables -> %d; dcvs %u MHz oob %s return %x\n", rc,
++	       gpu_khz[lvl] / 1000, dcvs ? "TIMEOUT" : "acked", rd32(GMU_REG(GMU_DCVS_RETURN)));
++
++	int ack = oob_set(16, 24);			/* OOB GPU_SET (legacy bits) */
+ 	a6_log("oob gpu_set %s, gx gdsc %x\n", ack ? "TIMEOUT" : "acked", rd32(GPUCC + GPUCC_GX_GDSCR));
+ 	if (!a6_gx_up()) {
+ 		a6_log("GX not powered; not touching GPU registers\n");
