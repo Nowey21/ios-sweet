@@ -303,3 +303,13 @@ tornare al fastboot.
 - IPSW: `iPhone10,3,iPhone10,6_16.7.16_20H392_Restore.ipsw`, 6 171 035 648
   byte, da `updates.cdn-apple.com` (URL e SHA-1 `5606c298…0193` da
   api.ipsw.me). Download in corso in `research/ipsw-x/`.
+- Strumenti per la root di iOS in Ubuntu: installati `hfsprogs` (mkfs/fsck
+  HFS+), `rsync`, `fuse3`, `cmake`, `g++`. Due ostacoli:
+  1. `apfs-fuse` non è nei pacchetti di Ubuntu 26.04: va compilato dal
+     sorgente (github.com/sgan81/apfs-fuse).
+  2. Il kernel di WSL (6.18.54.1) è senza HFS+ (`# CONFIG_HFSPLUS_FS is not
+     set`), ma `sweet-root-tweaks.py` deve montare l'immagine HFS+ in
+     scrittura. Soluzione prevista: compilare solo il modulo `hfsplus.ko` dai
+     sorgenti del kernel WSL di Microsoft (stessa versione) e caricarlo.
+  La compilazione di codice esterno è stata bloccata dal controllo dei
+  permessi: in attesa del consenso dell'utente.
