@@ -128,7 +128,9 @@ static int qmp_send(const char *msg);
 static int wlan_power(void)
 {
 	static const struct { const char *res; uint32_t mv; } ldo[] = {
-		{ "ldoa1", 752 }, { "ldoa7", 1800 }, { "ldoc2", 1304 }, { "ldoc11", 3104 },
+		/* davinci (DT icnss): vdd-cx-mx L9A 640 mV (qcom,vdd-cx-mx-config), vdd-1.8-xo L1C,
+		 * vdd-1.3-rfa L2C, vdd-3.3-ch0 L10C (3.2-3.312 V). flame: ldoa1 752, ldoa7 1800, ldoc2 1304, ldoc11 3104. */
+		{ "ldoa9", 640 }, { "ldoc1", 1800 }, { "ldoc2", 1304 }, { "ldoc10", 3304 },
 	};
 	for (unsigned i = 0; i < sizeof(ldo) / sizeof(ldo[0]); i++) {
 		uint32_t off[3] = { 0, 8, 4 }, val[3] = { ldo[i].mv, 7, 1 };
@@ -740,6 +742,20 @@ static int auto_up(void)
 		dup2(fileno(stdout), 2);
 	setvbuf(stdout, NULL, _IONBF, 0);
 	printf("wland auto: boot %ld, memory limit 2048 MB -> %d\n", (long)bt.tv_sec, mrc);
+	/*
+	 * davinci: the kernel's touch driver votes its rail (L6C) over RPMh 45 s
+	 * after boot, and the kernel refuses every RPMh vote after one that timed
+	 * out. Start after it, so a failing WLAN vote cannot take the touch with it.
+	 */
+	for (;;) {
+		struct timeval tv;
+		gettimeofday(&tv, NULL);
+		long up_s = (long)(tv.tv_sec - bt.tv_sec);
+		if (up_s >= 90)
+			break;
+		printf("wland auto: %ld s since boot, waiting for 90 (touch rail first)\n", up_s);
+		sleep((unsigned)(90 - up_s));
+	}
 	return up(0);
 }
 

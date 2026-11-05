@@ -7,6 +7,9 @@ The userland Wi-Fi driver of [ios-flame](https://github.com/NWylynko/ios-flame) 
 | --- | --- | --- |
 | `MPSS_PA` / `MPSS_SIZE` (`wland.c`, modem_region) | 0x8dc00000 / 0xb400000 | 0x8b000000 / 0x8400000 |
 | `MSA_PA` (`wlfw.c`, WLAN MSA) | 0x8bc00000 | 0x97d00000 (`wlan_msa_region`) |
+| WLAN rails (`wland.c` `wlan_power`) | ldoa1 752, ldoa7 1800, ldoc2 1304, ldoc11 3104 mV | ldoa9 640, ldoc1 1800, ldoc2 1304, ldoc10 3304 mV (DT icnss supplies) |
+| WLAN SMMU stream (`radio.c` `WLAN_SID`) | 0x640 | 0x240 (DT `iommus`) |
+| `wland auto` | starts at once | waits until 90 s after boot (touch rail first) |
 | board data (`wlfw.c`) | `bdwlan-flame*.bin` | `bdwlan.bin`, `bdwlan.b0c` from the modem partition (names to confirm) |
 
 Unchanged because the SoC family is the same (checked in davinci's device tree): SMEM 0x86000000,

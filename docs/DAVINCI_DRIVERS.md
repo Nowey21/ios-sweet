@@ -367,3 +367,20 @@ di accendere GPU e Wi-Fi.
   `launchd.plist.orig` e in `research/launchd/`. `remove` lo toglie.
   Senza `/var/local/wlan.conf` wland non si collega a nessuna rete: avvia il
   modem, WLFW e fa le scansioni passive. Poi `sync` e riavvio (boot 14).
+- **Boot 14** (job wland attivo): **il touch non funziona più** (riferito
+  dall'utente). `/var/local/wland.log`:
+  `smmu: WLAN 0x640/0x1 -> CB5 via SMR6 ... SMR 00000000 ... NOT as written`
+  (l'SMR scritto rilegge 0), `up: no WLAN SMMU stream`, poi
+  `wlan power: ldoa1 752 mV on -> 0`, `ldoa7 1800 mV on -> 60` (ETIMEDOUT) e
+  fine. Cause:
+  - stream SMMU del Pixel 4 (0x640); su davinci il DT dice `iommus = <0x30
+    0x240 0x1>`;
+  - rail del Pixel 4: su davinci (DT `icnss`) sono `vdd-cx-mx` = L9A (640 mV,
+    `qcom,vdd-cx-mx-config`), `vdd-1.8-xo` = L1C, `vdd-1.3-rfa` = L2C,
+    `vdd-3.3-ch0` = L10C. `ldoa1`/`ldoa7` sono altre linee del PM6150;
+  - dopo un voto RPMh in timeout `sweet_rpmh.c` rifiuta ogni voto successivo
+    ("previous uncertain transaction"): wland parte con launchd (~10 s) prima
+    del touch (45 s), e il voto L6C del touch non passa più.
+- Subito: `/var/local/wland.off` sul telefono (wland auto esce) + `sync`.
+- `phone/wifi`: rail di davinci, `WLAN_SID` 0x240, e `wland auto` aspetta
+  90 s dall'avvio, così il touch vota il suo rail per primo.
