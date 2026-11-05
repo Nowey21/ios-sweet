@@ -342,3 +342,6 @@ tornare al fastboot.
     Android: il montaggio come HFS+ deve fallire, quindi ci si aspetta che il
     kernel si fermi (panic "root device" o simile) senza scrivere nulla.
     Senza `sweetfb_noconsole=1`, il testo del kernel compare sullo schermo.
+- **Boot 3** (commit `adbec6f`): `fastboot boot shim/out/shim-boot-xnu-ro.img`
+  (16 748 KB) → `Booting OKAY`. Primo avvio di XNU sul Mi 9T, sola lettura.
+  In attesa di foto/video dello schermo.
