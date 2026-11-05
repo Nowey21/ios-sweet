@@ -191,6 +191,43 @@ Le patch si applicano in sequenza (la 0012 modifica righe della 0010), quindi
 le modifiche per davinci andranno in una patch finale separata, generata
 sull'albero xnu già patchato.
 
+### Test 3: primo avvio di XNU, risultato (2026-11-05)
+
+Foto (locali, fuori da git): `docs/davinci/boot3-xnu-1.jpg` … `-5.jpg`.
+**Il kernel XNU di sweet, senza modifiche, gira sul Mi 9T fino al montaggio
+della root.**
+
+Osservato sullo schermo (console del kernel, testo leggibile):
+- **SMP**: `SWEET CPU: 6/6 CPUs initialized, SGI1 verified`; ogni core
+  `PSCI CPU_ON rc=0`, MPIDR 0x0…0x500, EL1.
+- BSD e IOKit partono: copyright BSD, `MAC Framework successfully initialized`,
+  mbinit, Skywalk self-test tutti `PASSED`.
+- `SWEET FB: AppleCLCD 1080x2340 stride 4320 at 0x9c000000`, presentato come
+  1125x2436: le dimensioni arrivano dallo shim (boot-args video), quindi il
+  framebuffer di XNU ha già l'altezza giusta.
+- `SWEET HID: buttons registered`, `touch registered`;
+  `SWEET BATTERY: static fallback, 100% 4200mV`.
+- `SWEET UFS: "userdata" on LUN 0: first block 0x1b4200, 113805 MiB,
+  read-only`: partizione trovata per nome, **sola lettura** come voluto.
+- `SWEET KEYS: arb=0x50000000 apids=512 pon-apid=199 gpio4-apid=240 …`: il
+  bus SPMI e il PON rispondono (tasti da provare con la root di iOS).
+- `SWEET USB`: DWC3 e PHY QUSB2 leggibili, clock accesi.
+- Root: `hfs_ValidateHFSPlusVolumeHeader: unknown Volume Signature`,
+  `cannot mount root, errno = 19`, `mount(N) failed` ripetuto (≥ 19
+  tentativi). **Previsto**: `userdata` contiene ancora l'f2fs di Android. Il
+  kernel riprova all'infinito senza panic e senza scrivere.
+- **Touch**: dopo 45 s il driver vota la rail **L11C a 3200 mV** via RPMh
+  (quella di sweet) e prova il GT9896 a I²C 0x5d: `err=6`, `pid=a5a5a5a5`
+  (nessuna risposta), poi il fallback a 0x38: `err=6/6`. **Previsto**: su
+  davinci il touch è alimentato da PM6150L **LDO6** e serve AVDD sul GPIO 5 del
+  TLMM, più il reset sul GPIO 8. Il bus GENI SE7 invece funziona
+  (`se7 fw=0x303 proto=3`).
+
+Conclusione: RAM, GIC, timer, PSCI/SMP, framebuffer, UFS e SPMI sono a posto
+con i valori di sweet. Per arrivare alla schermata di blocco serve solo la
+root di iOS su `userdata` (passo distruttivo). Per il touch servono le
+modifiche già elencate (LDO6, GPIO AVDD/reset, protocollo GT9886).
+
 ### Test 2: memoria UFS (fatto)
 
 Stesso shim, nuova versione: dopo la schermata verde dei registri del display
@@ -344,4 +381,5 @@ tornare al fastboot.
     Senza `sweetfb_noconsole=1`, il testo del kernel compare sullo schermo.
 - **Boot 3** (commit `adbec6f`): `fastboot boot shim/out/shim-boot-xnu-ro.img`
   (16 748 KB) → `Booting OKAY`. Primo avvio di XNU sul Mi 9T, sola lettura.
-  In attesa di foto/video dello schermo.
+  Risultato: vedi "Test 3". XNU arriva al montaggio della root, che fallisce
+  come previsto; il touch non risponde (rail sbagliata).
