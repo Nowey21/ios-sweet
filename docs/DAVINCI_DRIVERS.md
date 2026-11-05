@@ -422,3 +422,20 @@ di accendere GPU e Wi-Fi.
   `tools/davinci-files.py put wlan.conf /private/var/local/wlan.conf 600`;
   `wlan.conf` è in `.gitignore`. wland lo legge all'avvio (`auto` gira una
   volta per avvio del telefono): dopo il caricamento serve un riavvio.
+- **Collegamento da Impostazioni (boot 15)**: l'utente sceglie una rete e
+  inserisce la password; la rotella gira all'infinito. `wland.log`: `bridge:
+  join '…' (PMK)`, auth 0, assoc 0, **WPA2 keys installed**, `joined`, `link
+  up`: la radio è collegata. Ma `radio: stats ... tx 2 sent` (solo i 2 EAPOL
+  dell'handshake) e nel log del kernel `net: so far 0 frames sent ..., 314
+  received`: **iOS non manda nulla su en0**, nemmeno il DHCP. wifid continua
+  a scansionare.
+- Causa (stessa del Pixel 4, ios-flame HANDOFF "configd had no network
+  services"): `/var/preferences/SystemConfiguration/preferences.plist` sul
+  telefono ha solo `System` e `__VERSION__`, **0 NetworkServices, nessun Set**:
+  configd non ha un servizio per en0 e non avvia il DHCP. Fatto: copia in
+  `/private/var/local/sc-preferences.plist.bak` (e `research/`), file tolto,
+  `sync`. Al prossimo avvio configd crea la configurazione predefinita con il
+  servizio Wi-Fi per en0. **Da verificare al prossimo riavvio.**
+- Anche nel log: `RedwoodWLAN: a user client of type 0 is asked for: there is
+  none` — atteso: il servizio IOKit non ha user client di proposito e wifid
+  ripiega sugli ioctl (ios-flame HANDOFF).
