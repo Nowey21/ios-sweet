@@ -397,3 +397,26 @@ tornare al fastboot.
 - Avviato `tools/mkiosroot.sh` in `/root/build` (WSL): OS + SystemOS + AppOS
   → `ios16-root.img` da 16 GiB. `sweet-root-tweaks.py` non contiene nulla di
   specifico per sweet: si usa così.
+- `mkiosroot.sh` completato fino alla copia dei file (12 GB su 16 GB usati),
+  poi interrotto da `install: invalid user: '272'`: in Ubuntu 26.04 `install`
+  è quello di uutils (Rust) e rifiuta un uid numerico senza voce in
+  `/etc/passwd`. I passi saltati (cartelle di logd di proprietà 272 con
+  `.migrated`, keybag di sistema, fsck) fatti a mano con mkdir/chown/chmod.
+  `tools/mkiosroot.sh` corretto allo stesso modo per le prossime volte
+  (`install -m … /dev/stdin` per la keybag funziona e resta).
+- Attenzione con WSL: i mount non restano tra due invocazioni di `wsl.exe`
+  (l'istanza si ferma) e Git Bash converte i percorsi `/mnt/...` se non si usa
+  `MSYS_NO_PATHCONV=1`. Ogni sequenza mount → modifica → umount va in un unico
+  script.
+- `sweet-root-tweaks.py`: launchd (7 `_PanicOnCrash` rinominati, 2 job
+  CommCenter tolti), containers, VirtualAudio spento, StartRecorderServer off,
+  preferenze di migrazione/SpringBoard/Setup. Avviso: `no mobileactivationd
+  system container in the image; skipped data ark` (lo stato attivato arriva
+  comunque dal ramo Hactivation scelto da `mkadt.py`).
+- fsck: `-f -y` dice "appears to be OK", ma `-f -n` subito dopo segnala sempre
+  "Volume header needs minor repair". Il README di sweet non fa il controllo
+  `-n`; si procede (XNU riproduce il journal all'avvio).
+- `img2simg` → `research/ios16-root.simg`, 12 145 275 164 byte, SHA-256
+  `8d3236cd…b25b` (identico dopo la copia su Windows).
+- Immagine di avvio definitiva `shim/out/shim-boot-xnu-rw.img` (cmdline del
+  README, root in scrittura, log persistente attivo).
