@@ -153,3 +153,17 @@ le rail e lo stato del chip.
     allo stack come prima;
   - trasmissione: un frame per NTB dietro un'intestazione fissa di 28 byte
     (NTH16 + NDP16), con un byte di riempimento se il blocco è multiplo di 512.
+- CI run `42031489208` (0082–0084) riuscita in 6 min 12 s → `xnu/out-0084/`.
+  Immagine `shim/out/shim-boot-0084-ncm.img` = cmdline di 0083 +
+  `sweetusb=2 sweetusbncm=1`.
+- **Boot 10: la rete USB funziona su Windows senza driver aggiuntivi.**
+  Windows carica il suo driver NCM: scheda "Ethernet 8", "ios-sweet Sweet
+  iOS (USB NCM)", `USB\VID_1209&PID_0002`, MAC 02-00-5E-77-EE-01, stato Up.
+  IP statico con `netsh interface ipv4 set address ... static 192.168.7.1
+  255.255.255.0` (UAC; `New-NetIPAddress` da una PowerShell elevata non aveva
+  avuto effetto). **`ping 192.168.7.2`: 4/4, 1–2 ms.** Il log del kernel dal
+  vivo arriva su UDP 5140 (backboardd/SpringBoard campionati, exec dei
+  demoni).
+- Nuovo `tools/davinci-usbnet.ps1`: aspetta la scheda, imposta l'IP una volta,
+  stampa (e salva con `-Log`) il log dal vivo. usbipd e WSL non servono più
+  per la rete.
