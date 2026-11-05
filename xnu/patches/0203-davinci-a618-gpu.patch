@@ -1,0 +1,217 @@
+diff --git a/bsd/dev/sweet_a6xx.c b/bsd/dev/sweet_a6xx.c
+index 0155304..0e43ffb 100644
+--- a/bsd/dev/sweet_a6xx.c
++++ b/bsd/dev/sweet_a6xx.c
+@@ -1,5 +1,6 @@
+ /*
+- * Adreno 640 core (see sweet_a6xx.h). The bring-up follows shim/gpuprobe.c,
++ * Adreno 640 core (see sweet_a6xx.h), with davinci's Adreno 618 values
++ * (patch 0203: SM7150 addresses, A618 firmware, levels, GMEM, UBWC, magic). The bring-up follows shim/gpuprobe.c,
+  * which first worked on the phone; that file has the reasoning behind each
+  * register value (offsets from mainline a6xx_gmu.c/a6xx_gpu.c, a6xx.xml,
+  * gpucc-sm8150.c, sm8150.dtsi).
+@@ -112,7 +113,7 @@ static void zero_pa(uint64_t pa, uint64_t size)
+ #define VA_LOG		A6_GMU_LOG_VA
+ #define VA_HFI		0x60005000u
+ 
+-#define RSCC		(0x02c6a000ull + 0x23000)
++#define RSCC		(0x0506a000ull + 0x23000)	/* davinci GMU + 0x23000 */
+ #define RSCC_REG(o)	(RSCC + 4ull * (o))
+ #define PDC		0x0b290000ull
+ #define PDC_REG(o)	(PDC + 4ull * (o))
+@@ -198,7 +199,7 @@ static int power_cx(void)
+ 	       rd32(GPUCC + GPUCC_GMU_RCG + 4), rd32(GPUCC + GPUCC_AHB), rd32(GPUCC + GPUCC_CXO),
+ 	       rd32(GPUCC + GPUCC_CX_GMU));
+ 	branch_on("gcc gpu_cfg_ahb", GCC + 0x71004);
+-	branch_on("gcc ddrss_gpu_axi", GCC + 0x71154);
++	branch_on("gcc ddrss_gpu_axi", GCC + 0x4452c);	/* SM7150 */
+ 	branch_on("gcc gpu_memnoc_gfx", GCC + 0x7100c);
+ 	branch_on("gcc gpu_snoc_dvm_gfx", GCC + 0x71018);
+ 
+@@ -337,7 +338,7 @@ static int gmu_smmu(struct a6_gpu *g)
+ 	return 0;
+ }
+ 
+-/* a6xx_gmu_rpmh_init for the A640 (pdc_address_offset 0x30090). */
++/* a6xx_gmu_rpmh_init for the A640 and A618 (both pdc_address_offset 0x30090). */
+ static void rpmh_init(void)
+ {
+ 	static const uint32_t rscc[][2] = {
+@@ -388,7 +389,7 @@ static void hfi_table(struct a6_gpu *g)
+ static int fw_load(struct a6_gpu *g)
+ {
+ 	uint32_t len;
+-	const uint8_t *fw = a6_firmware("a640_gmu.bin", &len);
++	const uint8_t *fw = a6_firmware("a618_gmu.bin", &len);	/* davinci vendor /firmware */
+ 	if (!fw)
+ 		return -1;
+ 	const uint8_t *p = fw, *end = fw + len;
+@@ -442,7 +443,7 @@ static int gmu_boot(struct a6_gpu *g)
+ 	wr32(GMU_REG(GMU_QTBL_INFO), 1);
+ 	wr32(GMU_REG(GMU_FENCE0), (1u << 31) | (0xau << 18) | 0xa0);
+ 	wr32(GMU_REG(GMU_CM3_CFG), 0x4052);
+-	wr32(GMU_REG(GMU_SFR_ADDR), 0x06040100);
++	wr32(GMU_REG(GMU_SFR_ADDR), 0x06018000);	/* A618 (A640: 0x06040100) */
+ 	for (uint32_t i = 0; i < 4; i++)
+ 		wr32(GPU + 4 * (0x3c03 + i), 0x00071620);
+ 	wr32(GMU_REG(GMU_CP_MSG), VA_LOG | (A6_GMU_LOG_SIZE / 0x1000 - 1));
+@@ -486,8 +487,10 @@ static int gmu_boot(struct a6_gpu *g)
+ #define LVL_SVS_L2	224
+ #define LVL_NOM		256
+ 
+-static const uint32_t gpu_khz[] = { 0, 257000, 345000, 427000, 499200, 585000 };
+-static const uint32_t gpu_lvl[] = { 0, LVL_LOW_SVS, LVL_SVS, LVL_SVS_L1, LVL_SVS_L2, LVL_NOM };
++/* davinci A618 (DT qcom,gpu-pwrlevels; ARC levels of the same A618 OPPs on SC7180): the five
++ * lowest of 180..825 MHz. flame A640: 257, 345, 427, 499.2, 585 MHz. */
++static const uint32_t gpu_khz[] = { 0, 180000, 267000, 355000, 430000, 565000 };
++static const uint32_t gpu_lvl[] = { 0, LVL_MIN_SVS, LVL_LOW_SVS, LVL_SVS, LVL_SVS_L1, LVL_NOM };
+ static const uint32_t gmu_khz[] = { 0, 200000 };
+ static const uint32_t gmu_lvl[] = { 0, LVL_MIN_SVS };
+ 
+@@ -614,9 +617,10 @@ static int gmu_hfi(struct a6_gpu *g)
+ 	int rc = hfi_send(g, 4, msg, 3 + 48 + 8);
+ 
+ 	memset(msg, 0, sizeof(msg));
++	/* a618_build_bw_table (A640: 3 CNOC commands at 0x50034/0x5007c/0x5004c) */
+ 	static const uint32_t bw[][2] = {
+-		{ 1, 1 }, { 2, 3 }, { 3, 3 }, { 4, 1 }, { 5, 1 }, { 6, 0x50034 }, { 7, 0x5007c }, { 8, 0x5004c },
+-		{ 12, 0x40000000 }, { 14, 0x40000000 }, { 18, 0x60000001 }, { 19, 0x20000001 }, { 20, 0x60000001 },
++		{ 1, 1 }, { 2, 3 }, { 3, 1 }, { 4, 1 }, { 5, 1 }, { 6, 0x5007c },
++		{ 12, 0x40000000 }, { 18, 0x60000001 },
+ 		{ 24, 0x50000 }, { 25, 0x5003c }, { 26, 0x5000c }, { 32, 0x40000000 }, { 33, 0x40000000 },
+ 		{ 34, 0x40000000 },
+ 	};
+@@ -647,7 +651,7 @@ static int gmu_hfi(struct a6_gpu *g)
+ /* ---- zap shader through TrustZone PAS ---- */
+ 
+ #define PAS_GPU		13
+-#define ZAP_REGION	0x9a915000ull	/* reserved-memory pil_gpu_region */
++#define ZAP_REGION	0x97f15000ull	/* davinci reserved-memory gpu_region (flame pil_gpu_region 0x9a915000) */
+ #define ZAP_SIZE	0x2000u
+ #define SCM_PIL(cmd)	(0x42000000ull | (2u << 8) | (cmd))
+ 
+@@ -664,7 +668,7 @@ static int zap_load(struct a6_gpu *g)
+ {
+ 	uint64_t r1 = 0;
+ 	uint32_t mlen, slen;
+-	const uint8_t *mdt = a6_firmware("a640_zap.mdt", &mlen), *b02 = a6_firmware("a640_zap.b02", &slen);
++	const uint8_t *mdt = a6_firmware("a615_zap.mdt", &mlen), *b02 = a6_firmware("a615_zap.b02", &slen);	/* davinci */
+ 	if (!mdt || !b02 || slen > ZAP_SIZE)
+ 		return -1;
+ 	a6_write(a6_pool_pa(g, A6_OFF_ZAP_META), mdt, mlen);
+@@ -1001,7 +1005,7 @@ int a6_recover(struct a6_gpu *g)
+ 
+ static int gpu_cp_init(struct a6_gpu *g, bool resume)
+ {
+-	/* a6xx hw_init for the A640 (a6xx_gpu.c), minus clock gating, CP protection and interrupts */
++	/* a6xx hw_init (a6xx_gpu.c) with the A618 values, minus clock gating, CP protection and interrupts */
+ 	wr32(GREG(0x3c45), 0);			/* GBIF_HALT */
+ 	(void)rd32(GREG(0x3c45));
+ 	wr32(GREG(0x16), 0);			/* RBBM_GBIF_HALT */
+@@ -1016,17 +1020,17 @@ static int gpu_cp_init(struct a6_gpu *g, bool resume)
+ 		/* UCHE: write range max, trap base, write-through base (trap 0x1fffffffff000) */
+ 		{ 0x0e05, 0xffffffc0 }, { 0x0e06, 0x1ffff }, { 0x0e09, 0xfffff000 }, { 0x0e0a, 0x1ffff },
+ 		{ 0x0e07, 0xfffff000 }, { 0x0e08, 0x1ffff },
+-		{ 0x0e0b, 0x100000 }, { 0x0e0c, 0 }, { 0x0e0d, 0x1fffff }, { 0x0e0e, 0 },	/* GMEM range */
++		{ 0x0e0b, 0x100000 }, { 0x0e0c, 0 }, { 0x0e0d, 0x17ffff }, { 0x0e0e, 0 },	/* GMEM range, 512 KB */
+ 		{ 0x0e18, 0x804 }, { 0x0e17, 0x4 },	/* UCHE_FILTER_CNTL, CACHE_WAYS */
+-		{ 0x08c2, 0x02000140 }, { 0x08c1, 0x8040362c }, { 0x08c3, 128 },	/* ROQ, mem pool */
++		{ 0x08c2, 0x010000c0 }, { 0x08c1, 0x8040362c }, { 0x08c3, 128 },	/* ROQ (A618), mem pool */
+ 		{ 0x098d, 1 }, { 0x0500, 1 },		/* CP_AHB_CNTL, RBBM_PERFCTR_CNTL */
+ 		{ 0x001f, (1u << 30) | 0x1fffff },	/* RBBM_INTERFACE_HANG_INT_CNTL */
+ 		{ 0x0e19, (1u << 7) | 1 },		/* UCHE_CLIENT_PF */
+ 		{ 0x9e00, 0x00180000 },			/* PC_DBG_ECO_CNTL: prim_fifo_threshold */
+ 		{ 0x08d0, 0 },				/* CP_PERFCTR_CP_SEL[0]: always count */
+-		/* a6xx_set_ubwc_config: highest bank bit 15 (hbb_lo 2), AMSBC, UBWC 3 */
+-		{ 0x8e08, (1u << 4) | (2u << 1) }, { 0xb604, 2u << 1 }, { 0xae02, 2u << 1 },
+-		{ 0x0e01, 2u << 21 }, { 0x0534, 0 },
++		/* a6xx_set_ubwc_config, A618: highest bank bit 14 (hbb_lo 1), no AMSBC */
++		{ 0x8e08, 1u << 1 }, { 0xb604, 1u << 1 }, { 0xae02, 1u << 1 },
++		{ 0x0e01, 1u << 21 }, { 0x0534, 0 },
+ 	};
+ 	for (unsigned i = 0; i < sizeof(init) / sizeof(init[0]); i++)
+ 		wr32(GREG(init[i][0]), init[i][1]);
+@@ -1062,10 +1066,11 @@ int a6_power_up(struct a6_gpu *g)
+ 
+ /* ---- 2D blit (turnip's r2d path for vkCmdBlitImage, captured on the A640) ---- */
+ 
+-/* The A640 state turnip writes before any work (tu6_init_hw + the device's magic registers). */
++/* The state turnip writes before any work (tu6_init_hw + the device's magic registers), captured on
++ * the A640; davinci: the A618 magic values (Mesa freedreno_devices.py, a6xx_gen1). */
+ static const uint32_t blit_init[][2] = {
+-	{ 0x9804, 0x1f }, { 0x9805, 1 }, { 0xa0f8, 1 }, { 0xb600, 0x8000 }, { 0x8600, 0 },
+-	{ 0xae03, 0x420 }, { 0xae00, 0 }, { 0xbe04, 0 }, { 0x9600, 0x2000000 }, { 0x0e12, 1 },
++	{ 0x9804, 0x1f }, { 0x9805, 0 }, { 0xa0f8, 1 }, { 0xb600, 0x00108000 }, { 0x8600, 0x880 },
++	{ 0xae03, 0x430 }, { 0xae00, 0 }, { 0xbe04, 0x00080000 }, { 0x9600, 0 }, { 0x0e12, 1 },
+ 	{ 0x8e01, 1 }, { 0x8e04, 0x4100000 }, { 0xae04, 0 }, { 0xae0f, 0x3f }, { 0xb605, 0x44 },
+ 	{ 0xbe00, 0x80 }, { 0xbe01, 0 }, { 0xab20, 0 }, { 0xb182, 0 }, { 0xbb11, 0 }, { 0xa9a8, 0 },
+ 	{ 0xab00, 5 }, { 0xa009, 3 }, { 0x8811, 0x10 }, { 0x8110, 0 }, { 0x8818, 0 }, { 0x8819, 0 },
+@@ -1073,7 +1078,7 @@ static const uint32_t blit_init[][2] = {
+ 	{ 0x9236, 0 }, { 0x9300, 0 }, { 0x9306, 1 }, { 0xb183, 0 }, { 0x80af, 0 }, { 0x8099, 0 },
+ 	{ 0x980a, 0 }, { 0x9210, 0 }, { 0x9211, 0 }, { 0x9602, 0 }, { 0x9e72, 0 }, { 0xb309, 0xa2 },
+ 	{ 0xb986, 0xfc }, { 0xa007, 0 }, { 0x8864, 0 }, { 0xb800, 0x102 },
+-	{ 0x8e07, 0x10000000 },		/* RB_CCU_CNTL: sysmem, full CCU */
++	{ 0x8e07, 0x08000000 },		/* RB_CCU_CNTL: sysmem; A618 has 1 CCU (A640: 0x10000000) */
+ };
+ 
+ #define EV_CACHE_FLUSH_TS	0x04
+diff --git a/bsd/dev/sweet_a6xx.h b/bsd/dev/sweet_a6xx.h
+index 2edb7be..d7f4f86 100644
+--- a/bsd/dev/sweet_a6xx.h
++++ b/bsd/dev/sweet_a6xx.h
+@@ -51,8 +51,8 @@
+ #define A6_FB_PA		0x9c000000ull	/* davinci cont_splash_region */
+ #define A6_FB_SIZE		0xa00000ull	/* mapped for the GPU: 5 x 2 MB */
+ 
+-#define A6_GPU_ID		640
+-#define A6_CHIP_ID		0x06040001ull
++#define A6_GPU_ID		618	/* davinci: Adreno 618 (flame: 640) */
++#define A6_CHIP_ID		0x06010800ull	/* DT qcom,chipid */
+ 
+ struct a6_gpu {
+ 	uint64_t pool_pa;
+@@ -61,7 +61,7 @@ struct a6_gpu {
+ 	uint32_t fence;			/* last fence value submitted */
+ 	uint32_t hfi_seq;
+ 	uint32_t pt_next;		/* next free table in the arena */
+-	uint32_t perf_level;		/* GMU perf vote: 1 (257 MHz) .. 5 (585 MHz); 0 = 1 */
++	uint32_t perf_level;		/* GMU perf vote: 1 (180 MHz) .. 5 (565 MHz) on davinci; 0 = 1 */
+ };
+ 
+ /* ---- environment ---- */
+@@ -157,10 +157,10 @@ uint32_t a6_blit_ib(const struct a6_gpu *g, const struct a6_blit *b, uint32_t *d
+ #define A6_CP_MEMCPY		0x75
+ 
+ /* Register/state access for status and dumps */
+-#define A6_GPU_BASE		0x02c00000ull
++#define A6_GPU_BASE		0x05000000ull	/* davinci kgsl-3d0 (flame 0x02c00000) */
+ #define A6_GREG(o)		(A6_GPU_BASE + 4ull * (o))
+-#define A6_GPUCC		0x02c90000ull
+-#define A6_SMMU			0x02ca0000ull
++#define A6_GPUCC		0x05090000ull	/* davinci gpucc-sdmmagpie */
++#define A6_SMMU			0x05040000ull	/* davinci kgsl-iommu */
+ #define A6_SMMU_CB(n)		(A6_SMMU + 0x8000 + 0x1000ull * (n))
+ #define A6_FSR_FAULT		0xc00001feu
+ #define A6_GMEM_LOG_OFF		0x91000ull
+diff --git a/bsd/dev/sweet_gpu.c b/bsd/dev/sweet_gpu.c
+index c87ed5d..e9d535d 100644
+--- a/bsd/dev/sweet_gpu.c
++++ b/bsd/dev/sweet_gpu.c
+@@ -286,7 +286,7 @@ sweet_gpu_init(void)
+ 	}
+ 	ppnum_t pn = pmap_find_phys(kernel_pmap, (addr64_t)va);
+ 	a6_init_state(&gpu, ptoa_64(pn));
+-	uint32_t lvl = 4;	/* 499 MHz; boot-arg sweetgpufreq=1 (257) .. 5 (585) */
++	uint32_t lvl = 4;	/* davinci 430 MHz; boot-arg sweetgpufreq=1 (180) .. 5 (565) */
+ 	PE_parse_boot_argn("sweetgpufreq", &lvl, sizeof(lvl));
+ 	gpu.perf_level = lvl;
+ 	pool_kva = va;
+@@ -546,7 +546,7 @@ present_wait_locked(uint32_t k, const char *why)
+ 	return 0;
+ }
+ #define PANEL_W         1080
+-#define PANEL_H         2280
++#define PANEL_H         2340	/* davinci (flame 2280) */
+ #define DISPLAY_MASK_OFF        0x500000ULL     /* 2x2 corner mattes, one per corner */
+ #define DISPLAY_MASK_SIDE       256u
+ #define DISPLAY_MASK_DIM        (DISPLAY_MASK_SIDE * 2)

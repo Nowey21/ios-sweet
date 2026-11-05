@@ -439,3 +439,42 @@ di accendere GPU e Wi-Fi.
 - Anche nel log: `RedwoodWLAN: a user client of type 0 is asked for: there is
   none` — atteso: il servizio IOKit non ha user client di proposito e wifid
   ripiega sugli ioctl (ios-flame HANDOFF).
+
+### GPU Adreno 618: patch 0203 (2026-11-05, scritta mentre l'utente era via)
+
+Il driver kernel di ios-flame (`bsd/dev/sweet_a6xx.[ch]`, `sweet_gpu.c`,
+~2300 righe) accende CX/GMU, carica il firmware della GMU, parla HFI, prepara
+gli SMMU, carica SQE e zap shader, avvia il CP e fa il blit 2D verso il
+pannello. Valori del Pixel 4 sostituiti con quelli di davinci
+(`research/davinci-flame/gpu-0203.py` → `xnu/patches/0203-davinci-a618-gpu.patch`):
+
+| Cosa | A640 (SM8150) | A618 (davinci) | Fonte |
+| --- | --- | --- | --- |
+| GPU / GPUCC / GPU SMMU | 0x02c00000 / 0x02c90000 / 0x02ca0000 | **0x05000000 / 0x05090000 / 0x05040000** | DT kgsl-3d0, gpucc-sdmmagpie, kgsl-iommu |
+| RSCC (GMU + 0x23000) | 0x02c8d000 | **0x0508d000** | DT gmu@506a000 |
+| PDC / PDC seq | 0x0b290000 / 0x0b490000 | uguali | DT gmu reg |
+| GCC `ddrss_gpu_axi` | 0x71154 | **0x4452c** | Linux gcc-sm7150.c (gli altri 3 clock coincidono) |
+| chip id / HFI SFR | 0x06040001 / 0x06040100 | **0x06010800 / 0x06018000** | DT qcom,chipid; calcolo di a6xx_gmu.c |
+| firmware | a640_gmu.bin, a630_sqe.fw, a640_zap | **a618_gmu.bin**, a630_sqe.fw, **a615_zap** (.mdt + .b02) | vendor /firmware |
+| zap region | 0x9a915000 | **0x97f15000** (0x2000) | DT gpu_region |
+| frequenze (5 livelli) | 257–585 MHz | **180, 267, 355, 430, 565 MHz** (MIN_SVS…NOM) | DT gpu-pwrlevels (180…825); livelli ARC delle stesse OPP dell'A618 su SC7180 |
+| GMU | 200 MHz MIN_SVS | uguale | DT gmu-pwrlevels |
+| tabella banda HFI | a640 (3 comandi CNOC) | **a618_build_bw_table** (1 comando CNOC 0x5007c) | Linux a6xx_hfi.c |
+| GMEM | 1 MB | **512 KB** (range fino a 0x17ffff) | Linux a6xx_catalog.c |
+| CP_ROQ_THRESHOLDS_2 | 0x02000140 | **0x010000c0** | Linux a6xx_gpu.c |
+| UBWC | hbb 15, AMSBC | **hbb 14, senza AMSBC** | Linux a6xx_gpu.c |
+| registri "magic" del blit | A640 | **A618** (TPL1 0x108000, GRAS 0x880, SP_CHICKEN 0x430, HLSQ 0x80000, VPC 0, PC_POWER 0) | Mesa freedreno_devices.py a6xx_gen1 |
+| RB_CCU_CNTL sysmem | 0x10000000 (2 CCU) | **0x08000000** (1 CCU) | Mesa: offset colore = num_ccu × 64 KB |
+| pannello per il blit | 1080×2280 | 1080×2340 | |
+| SMMU SID | GPU 0, GMU 5 | uguali (DT: gfx3d_user 0, gmu kernel 5) | DT iommus |
+
+Firmware estratti da vendor in `research/fw/gpu/` (escluso da git).
+`tools/mkpayload.py` ora è quello di ios-flame (MIT): `--gpufw DIR` mette i
+firmware in `/chosen/gpufw,<nome>` dell'ADT (il kernel li legge da lì) con i
+nomi di davinci; aggiunge anche gli indirizzi dell'anello del log in fondo alla
+cmdline. Il vecchio è in `research/mkpayload-sweet.py.bak`.
+
+La GPU resta **spenta** di default (`sweetgpu=0`): la patch non cambia nulla
+negli avvii normali. Da provare con `sweetgpu=1` + `--gpufw`. Non verificato:
+tutto il resto (GMU boot, HFI, CP) va visto sul telefono; i punti più incerti
+sono i livelli ARC (presi dall'A618 di SC7180) e lo stato del blit.
