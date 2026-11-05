@@ -209,3 +209,37 @@ le rail e lo stato del chip.
     APCS 0x17c0000c.
 - Il codice userland (wland, Turnip, metal2vulkan) si compila con Xcode +
   SDK iOS: serve un workflow sui runner macOS di GitHub Actions.
+
+### Adattamento della serie flame a davinci: inventario (2026-11-05)
+
+Ramo `davinci` in `/root/xnu-work` = `flame` + le nostre modifiche. Le tre
+patch davinci (0082–0084) vanno in conflitto in `sweet_rpmh.c` (flame ha già
+ammesso `ldoa14`/`ldoa17` per il suo touch), `SweetHID.cpp` (flame usa costanti
+`SWEET_PANEL_W/H`) e `sweet_usb.c` (flame ha riscritto molto per il suo PHY e
+per l'SMMU): vanno riscritte sopra flame, non applicate.
+
+Valori **fissi del Pixel 4** nella serie flame e valore per davinci (DT di
+questo telefono):
+
+| Dove | flame (SM8150) | davinci (SM7150) | Note |
+| --- | --- | --- | --- |
+| `SWEET.h` `SWEET_EARLY_FB_PA` / `_BLOCK_PA` / `_HEIGHT` | 0x9c400000 / 0x9c000000 / 2280 | 0x9c000000 / 0x9c000000 / **2340** | console di avvio, `start.s`, `arm_vm_init.c` |
+| `SweetHID.cpp` `SWEET_PANEL_H` | 2280 | **2340** | |
+| `sweet_keys.c` vol+ | PM8150 GPIO6, SID 0, 0xc500 | **PM6150L GPIO2, SID 4, 0xc100** (come sweet) | |
+| `sweet_fts.c` touch ST FTS | SPI su SE4 0x890000, GPIO 122/126/127/128 | **da spegnere**: su davinci 0x890000 è un altro I²C; touch = GT9886 (nostra 0082) | flame spegne il driver Redmi di default (`sweettouch=1` lo forza) |
+| `sweet_cpufreq.c` OSM | 0x18323000 / 0x18325800 / 0x18327800 (4+3+1) | da verificare nel DT (2 A76 + 6 A55); intanto **spento** (`flamecpufreq`) | |
+| `sweet_usb.c` | PHY Synopsys femto a 0x088e2000, DWC3 dietro l'apps SMMU (`sweetusbsmmu`) | **QUSB2 v2** a 0x088e2000 (sweet), senza SMMU; più la nostra NCM (0084) | |
+| `SweetPlatformExpert.cpp` watchdog APSS | 0x17c10000 | 0x17c10000 (uguale) | |
+| RTC | PM8150 SID 0, 0x6000 | PM6150 `qcom,qpnp-rtc` 0x6000 (uguale) | |
+| `sweet_ufs.c` `SWEET_MIRROR_PA` (copia del log in RAM) | 0x1fe000000 | **fuori dalla RAM**: davinci finisce a 0x1fcc00000 | da spostare sotto la fine e togliere dalla RAM di XNU |
+| `mkadt.py` RAM di XNU / `pram` | 0x100000000…0x1fcc00000 / 0x1fd000000 (flame ha RAM fino a 0x200000000) | da ridurre: p.es. XNU fino a 0x1f9c00000, `pram` 0x1fa000000, mirror 0x1fb000000 | |
+| `sweet_a6xx.h` GPU | base 0x02c00000, GPUCC 0x02c90000, SMMU 0x02ca0000, chip 0x06040001 (A640) | **base 0x05000000, GMU 0x0506a000, GPU SMMU 0x05040000, chip 0x06010800 (A618)**, GPUCC da DT | GMU `a618_gmu.bin`, zap `a615_zap` |
+| `sweet_a6xx.h` `A6_FB_PA` | 0x9c400000 | 0x9c000000 | |
+| zap shader `ZAP_REGION` | 0x9a915000 (`pil_gpu_region`) | **0x97f15000** (`gpu_region`, 0x2000) | |
+| `phone/wifi` modem / MSA | 0x8dc00000 (0xb400000) / 0x8bc00000 | **0x8b000000 (0x8400000) / 0x97d00000** | uguali: smem 0x86000000, WCSS 0x18800000, apps SMMU 0x15000000, APCS IPC 0x17c0000c |
+| `phone/wifi/radio.c` `POOL_PA` | 0xE0000000 (16 MiB, banco basso non usato da XNU) | probabilmente uguale: su davinci XNU usa solo il banco alto e 0xE0000000 non è riservato | da verificare |
+
+Prossimo passo: una patch "board davinci" sopra flame con queste modifiche,
+più la riscrittura delle nostre 0082–0084; poi un avvio che deve dare lo
+stesso risultato di oggi (schermata di blocco, touch, tasti, rete USB) prima
+di accendere GPU e Wi-Fi.
