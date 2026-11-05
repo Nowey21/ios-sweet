@@ -455,3 +455,15 @@ tornare al fastboot.
   (AppleKeyStore stub). `bluetoothd`, `fairplayd.H2` e `xpcproxy` ripartono
   di continuo: è lo stesso comportamento di sweet (manca l'hardware; NOTES.md
   2026-10-17). Nessun panic visibile.
+- Boot 5, foto a ~4 minuti (`docs/davinci/boot5-4min.jpg`, locale): stesso
+  stato. `SMP --- sample 2`, backboardd e SpringBoard con gli stessi pc/stack
+  (in attesa, non in crash), bluetoothd/fairplayd.H2 che ripartono. Nessuna
+  immagine di iOS visibile dietro il testo.
+- Per leggere il log persistente (fondo di `userdata`) serve adb root da
+  recovery. La recovery installata è **LineageOS 23** (userdebug,
+  `ro.adb.secure=1`): adb c'è ma rifiuta i PC non autorizzati, e `/adb_keys`
+  è un link a `/product/etc/security/adb_keys`, non montato in recovery.
+  `tools/davinci-mkrecovery.sh` ricostruisce la recovery dal backup con la
+  chiave pubblica adb di questo PC in `/adb_keys` →
+  `recovery/recovery-adbkey.img` (escluso da git), da avviare con
+  `fastboot boot` (la partizione recovery non viene scritta).
