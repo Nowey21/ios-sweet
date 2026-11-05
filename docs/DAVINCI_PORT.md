@@ -1,5 +1,10 @@
 # Port di ios-sweet su Mi 9T / Redmi K20 (davinci)
 
+> **Stato (2026-11-05, ~13:00): iOS 16.7.16 arriva alla schermata di blocco
+> sul Mi 9T, e i tasti fisici funzionano.** Kernel XNU di sweet senza
+> modifiche, shim con `BOARD=davinci`, root iOS su `userdata`. Il touch non
+> funziona ancora (rail e protocollo diversi, vedi "Cosa manca").
+
 Documento di lavoro del port. Ogni passo, ogni boot e ogni decisione vengono
 annotati qui (sezione "Diario"). Si distingue sempre tra **osservato** (visto sul
 telefono o nei file) e **ipotesi** (da verificare).
@@ -255,16 +260,15 @@ tornare al fastboot.
 1. ✅ Accesso root, backup, device tree.
 2. ✅ Shim per davinci: schermo (nessun kick necessario) e UFS verificati.
    Prova con `fastboot boot` (non scrive niente sul telefono).
-3. 🔄 Build di XNU su GitHub Actions: fork
+3. ✅ Build di XNU su GitHub Actions: fork
    [Nowey21/ios-sweet](https://github.com/Nowey21/ios-sweet), ramo `davinci`,
    prima build = kernel SWEET senza modifiche (run `42010014603`).
-4. 🔄 Root di iOS: IPSW iPhone X 16.7.16 da Apple (download in corso),
-   poi `mkiosroot.sh` in WSL.
-5. ⬜ ADT (`tools/mkadt.py`) per il primo boot: come sweet (ipotesi: va bene
-   così); poi 1080×2340.
-6. ⬜ Flash su `userdata` (**cancella Android**, da confermare con l'utente
-   prima di farlo), primo boot, log da recovery.
-7. ⬜ Patch del kernel per davinci (tabella sopra): schermo 2340, touch GT9886.
+4. ✅ Root di iOS: IPSW iPhone X 16.7.16 da Apple, `mkiosroot.sh` in WSL.
+5. ✅ ADT (`tools/mkadt.py --highmem`) di sweet: va bene così.
+6. ✅ Flash su `userdata` (confermato dall'utente), primo boot, log da
+   recovery. **Schermata di blocco raggiunta.**
+7. ⬜ Patch del kernel per davinci: **touch GT9886** (priorità), poi schermo
+   2340 (allineamento, dot pitch, console).
 
 ## Handoff (per chi riprende il lavoro)
 
@@ -492,3 +496,9 @@ tornare al fastboot.
   `fastboot boot shim/out/shim-boot-xnu-rw.img` → `Booting OKAY`. Avvio
   normale (console nascosta), da lasciare acceso ~30 minuti in carica per
   far finire la migrazione dei dati.
+- **🎉 Boot 6: schermata di blocco di iOS sul Mi 9T** (riferito dall'utente,
+  entro ~30 minuti dall'avvio delle 12:31). **I tasti funzionano** (power e
+  volume arrivano a iOS tramite SPMI → `sweet_keys.c` → SweetHIDButtons). Il
+  touch no, come previsto (rail L11C di sweet invece di LDO6, AVDD/reset su
+  GPIO del TLMM, GT9886 al posto del GT9896). Il primo avvio lungo era la
+  migrazione dei dati: con abbastanza tempo finisce da sola.
