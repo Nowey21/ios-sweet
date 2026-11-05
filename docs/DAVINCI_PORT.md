@@ -383,3 +383,17 @@ tornare al fastboot.
   (16 748 KB) → `Booting OKAY`. Primo avvio di XNU sul Mi 9T, sola lettura.
   Risultato: vedi "Test 3". XNU arriva al montaggio della root, che fallisce
   come previsto; il touch non risponde (rail sbagliata).
+- Primo `hfsplus.ko` (gcc 15) rifiutato: `disagrees about version of symbol
+  module_layout`. Causa: il kernel WSL di Microsoft è compilato con gcc 13.2,
+  e con gcc 15 cambiano alcune opzioni `CONFIG_CC_HAS_*` / `GCC_PLUGINS`
+  e quindi i CRC dei simboli.
+- Ricompilato tutto con `gcc-13` (13.4) e `gcc-13-plugin-dev`, config
+  originale + `CONFIG_HFSPLUS_FS=m`, `LOCALVERSION_AUTO` spento: vermagic
+  `6.18.54.1-microsoft-standard-WSL2`, `insmod` riuscito, `hfsplus` in
+  `/proc/filesystems`. Si ricarica con
+  `insmod /root/wslk/fs/hfsplus/hfsplus.ko` dopo ogni riavvio di WSL.
+- L'utente ha **confermato** (2026-11-05) che si può cancellare `userdata`
+  per scriverci la root di iOS.
+- Avviato `tools/mkiosroot.sh` in `/root/build` (WSL): OS + SystemOS + AppOS
+  → `ios16-root.img` da 16 GiB. `sweet-root-tweaks.py` non contiene nulla di
+  specifico per sweet: si usa così.
