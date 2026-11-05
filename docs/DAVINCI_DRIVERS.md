@@ -480,3 +480,20 @@ La GPU resta **spenta** di default (`sweetgpu=0`): la patch non cambia nulla
 negli avvii normali. Da provare con `sweetgpu=1` + `--gpufw`. Non verificato:
 tutto il resto (GMU boot, HFI, CP) va visto sul telefono; i punti più incerti
 sono i livelli ARC (presi dall'A618 di SC7180) e lo stato del blit.
+
+### Turnip per iOS in CI (2026-11-05)
+
+- `phone/turnip/` copiato da ios-flame (MIT): `NativeAdrenoABI.h` (ABI di
+  NativeAdreno, MIT, **identica** a `SweetGPUABI.h` del nostro kernel),
+  `vktest.c`, `v2test.cpp`, shader di prova, `patches/0100-sweet-fetch-gmem-
+  min-draws.patch`.
+- `phone/turnip/build-turnip-ci.sh` + workflow manuale
+  `.github/workflows/gpu-userland.yml` (macos-14): Mesa **85fda3b3** + le
+  patch Mesa di **UniXNU al commit `2b88cfc9`** (21 ottobre, le stesse 8 patch
+  di ios-flame; oggi UniXNU main ne ha 17 e potrebbe avere un'ABI diversa
+  dal nostro kernel), scaricate al momento della build e non copiate, più la
+  0100 di flame; cross-build meson per `arm64-apple-ios16.0`, backend
+  `-Dfreedreno-kmds=darwin`; `vktest` compilato e firmato. Artifact
+  `turnip-ios`.
+- L'A618 è supportato da Mesa senza modifiche (a6xx_gen1). Turnip legge
+  l'identità dal kernel (GetDeviceInfo), che la 0203 ora riporta come A618.

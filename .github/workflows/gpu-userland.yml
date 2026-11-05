@@ -1,0 +1,55 @@
+name: gpu-userland
+
+# Turnip (Mesa Vulkan for Adreno) for iOS 16 arm64 with the darwin kernel
+# backend, plus the vktest smoke test (phone/turnip). Heavy: run by hand.
+on:
+  workflow_dispatch:
+
+jobs:
+  turnip:
+    runs-on: macos-14
+    timeout-minutes: 90
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Tools
+        run: |
+          brew install meson ninja bison flex glslang
+          echo "/opt/homebrew/opt/bison/bin" >> "$GITHUB_PATH"
+          echo "/opt/homebrew/opt/flex/bin" >> "$GITHUB_PATH"
+          python3 -m venv "$RUNNER_TEMP/venv"
+          "$RUNNER_TEMP/venv/bin/pip" install -q mako pyyaml packaging
+          echo "$RUNNER_TEMP/venv/bin" >> "$GITHUB_PATH"
+          xcodebuild -version
+
+      - name: Turnip for iOS
+        run: bash phone/turnip/build-turnip-ci.sh "$RUNNER_TEMP/turnip"
+
+      - name: vktest
+        run: |
+          set -e
+          cd phone/turnip
+          mkdir -p out
+          : > out/shaders.h
+          for s in fill.comp:fill_comp tri.vert:tri_vert tri.frag:tri_frag; do
+            glslangValidator -V --target-env vulkan1.2 --vn "${s#*:}" -o out/"${s#*:}".h shaders/"${s%%:*}" >/dev/null
+            cat out/"${s#*:}".h >> out/shaders.h
+          done
+          xcrun --sdk iphoneos clang -arch arm64 -miphoneos-version-min=16.0 -O2 -Wall -I out \
+            -I "$RUNNER_TEMP/turnip/mesa/include" -o out/vktest vktest.c
+          codesign -f -s - out/vktest
+          cp "$RUNNER_TEMP/turnip/build-ios/src/freedreno/vulkan/libvulkan_freedreno.dylib" out/
+          ls -la out
+
+      - name: Logs on failure
+        if: failure()
+        run: |
+          tail -n 80 "$RUNNER_TEMP/turnip/configure.log" 2>/dev/null || true
+          grep -E "error:|FAILED" "$RUNNER_TEMP/turnip/build.log" 2>/dev/null | head -n 60 || true
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: turnip-ios
+          path: |
+            phone/turnip/out/vktest
+            phone/turnip/out/libvulkan_freedreno.dylib
