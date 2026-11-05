@@ -420,3 +420,6 @@ tornare al fastboot.
   `8d3236cd…b25b` (identico dopo la copia su Windows).
 - Immagine di avvio definitiva `shim/out/shim-boot-xnu-rw.img` (cmdline del
   README, root in scrittura, log persistente attivo).
+- L'utente ha dato il via finale al flash. ABL: `max-download-size`
+  0x30000000 (768 MiB). Avviato `fastboot -S 512M flash userdata
+  research/ios16-root.simg`.
