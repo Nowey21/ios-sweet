@@ -7,7 +7,9 @@ on:
   push:
     branches: [davinci]
     paths:
-      - "phone/**"
+      - "phone/wifi/**"
+      - "phone/turnip/v2test.cpp"
+      - "phone/turnip/NativeAdrenoABI.h"
       - ".github/workflows/userland.yml"
 
 jobs:
@@ -25,6 +27,18 @@ jobs:
 
       - name: wland (Wi-Fi)
         run: sh phone/wifi/build.sh
+
+      - name: v2test (GPU ABI test, no Turnip)
+        run: |
+          set -e
+          # IOKit's user headers are not public in the iPhoneOS SDK: take them from the macOS SDK
+          inc="$RUNNER_TEMP/iokit-inc"; mkdir -p "$inc"
+          cp -R "$(xcrun --sdk macosx --show-sdk-path)/System/Library/Frameworks/IOKit.framework/Headers" "$inc/IOKit"
+          mkdir -p phone/wifi/out
+          xcrun --sdk iphoneos clang++ -arch arm64 -miphoneos-version-min=16.0 -O2 -Wall -std=c++17 \
+            -I "$inc" -I phone/turnip -o phone/wifi/out/v2test phone/turnip/v2test.cpp -framework IOKit
+          codesign -f -s - phone/wifi/out/v2test
+          file phone/wifi/out/v2test
 
       - name: Check binaries
         run: |
