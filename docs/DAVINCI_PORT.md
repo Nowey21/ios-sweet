@@ -447,3 +447,11 @@ tornare al fastboot.
 - **Boot 5**: il telefono è rientrato nel fastboot, `fastboot boot
   shim/out/shim-boot-xnu-rw-console.img` → `Booting OKAY`. In attesa di foto
   del testo sullo schermo.
+- Boot 5, foto dopo ~1 minuto (`docs/davinci/boot5-1min.jpg`, locale):
+  **lo userland di iOS gira.** Root HFS+ montata, launchd avviato, e il
+  campionatore dei processi (patch 0054, `SMP --- sample 0`) mostra
+  **backboardd[56]** (15 thread) e **SpringBoard[26]** vivi, con i loro
+  stack. `SWEET AKS: securityd sel 7 … -> 0x0`, `sel 10 … -> 0xe00002c7`
+  (AppleKeyStore stub). `bluetoothd`, `fairplayd.H2` e `xpcproxy` ripartono
+  di continuo: è lo stesso comportamento di sweet (manca l'hardware; NOTES.md
+  2026-10-17). Nessun panic visibile.
