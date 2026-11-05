@@ -497,3 +497,16 @@ sono i livelli ARC (presi dall'A618 di SC7180) e lo stato del blit.
   `turnip-ios`.
 - L'A618 è supportato da Mesa senza modifiche (a6xx_gen1). Turnip legge
   l'identità dal kernel (GetDeviceInfo), che la 0203 ora riporta come A618.
+- **Turnip per iOS compilato** (gpu-userland run `42060145285`, 2 min 20 s):
+  tutte le 8 patch UniXNU e la 0100 si applicano; `libvulkan_freedreno.dylib`
+  17 877 616 byte (ios-flame: ~18 MB), esporta `vkGetInstanceProcAddr`,
+  contiene il backend darwin (`IOAcceleratorES`); i "weak external" segnalati
+  sono solo template C++ interni `tu_*`, nessun simbolo di libc. `vktest`
+  69 056 byte. Artifact scaricato in `research/turnip-out/` (locale).
+- **v2test compilato** (userland run `42060242739`): header IOKit dal SDK
+  macOS dello stesso Xcode (non sono pubblici nel SDK iPhoneOS), linkato con
+  l'IOKit di iOS. In `research/userland-out/` con wland.
+- `tools/davinci-launchd-job.py add NAME PROGRAM ARGS...`: job launchd di una
+  volta (org.davinci.NAME, root, output in `/var/local/NAME.out`,
+  `DYLD_LIBRARY_PATH=/var/local/lib`). Sul telefono non c'è una shell: i
+  test girano così.
