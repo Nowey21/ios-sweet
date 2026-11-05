@@ -1,5 +1,10 @@
 # Mi 9T (davinci): piano per GPU, Wi-Fi e Bluetooth
 
+> **Stato (2026-11-05, ~16:40): la radio Wi-Fi funziona.** wland avvia il
+> modem, carica il firmware WLAN (WCN3990, `WLAN.HL.3.0.1`), arriva a
+> FW READY / WMI READY / HTT e le scansioni passive trovano le reti (2,4 e
+> 5 GHz). Manca la connessione a una rete (serve `/var/local/wlan.conf`).
+
 Stato al 2026-11-05: iOS 16.7.16 gira con schermata di blocco, touch e tasti
 (vedi [DAVINCI_PORT.md](DAVINCI_PORT.md)). Grafica disegnata dalla CPU, niente
 radio. Questo documento raccoglie cosa serve per i tre driver successivi, da
@@ -384,3 +389,29 @@ di accendere GPU e Wi-Fi.
 - Subito: `/var/local/wland.off` sul telefono (wland auto esce) + `sync`.
 - `phone/wifi`: rail di davinci, `WLAN_SID` 0x240, e `wland auto` aspetta
   90 s dall'avvio, così il touch vota il suo rail per primo.
+- **🎉 Boot 15: la radio Wi-Fi del Mi 9T funziona.** `wland.log` (locale,
+  `logs/wland-boot15.log`; contiene i nomi delle reti vicine, quindi fuori da
+  git):
+  - `wland auto: 14 s since boot, waiting for 90` → poi
+    `smmu: WLAN 0x240/0x1 -> CB5 via SMR6: SMR 80010240 ... -> ok`;
+  - rail `ldoa9` 640, `ldoc1` 1800, `ldoc2` 1304, `ldoc10` 3304 mV,
+    `rfclka2`: tutti `-> 0`; QMP `qdss` acked; voti `cx[6]`, `mss[7]`;
+  - modem: metadati 9100 byte, `mem setup 8b000000+8400000 -> 0/0`,
+    61 509 533 byte di segmenti, auth and reset → **modem ready after
+    100 ms**; SMP2P state 6;
+  - glink (VERSION, OPEN `IPCRTR` e altri canali), QRTR; `rmtfs` legge
+    `modemst1/2` e `fsg` (dati del telefono); `pd-mapper`; `tftp`: il modem
+    chiede `/readonly/firmware/image/wlanmdsp.mbn` e lo riceve (3 811 792
+    byte); i file `miui_*`, `cust_variant`, `mbn_*.dig`, `ota_firewall`
+    mancano senza conseguenze;
+  - WLFW: `MSA region 0: 97d00000+4000 secure`, `region 1: 97d04000+fc000`
+    (hyp_assign ok), **MSA READY**, `chip 0x140 family 0x4002 board 0 soc
+    0x40090000 fw 0x3012006b`, board data **`bdwlan.bin`** (19 152 byte, board
+    ID 0: nessuna variante necessaria), MAC, cal report, **FW READY**, wlan
+    config, mission mode;
+  - radio: 12 ring CE, `/dev/wlan` aperto (en0 + wifid), **HTC READY**,
+    WMI SERVICE_READY (1 catena RF), **WMI READY**, **HTT VERSION_CONF
+    3.61**, lista canali (37), **scansioni passive: 14 reti** su 2,4 e 5 GHz
+    (WPA2/WPA3), segnale fino a −24 dBm. Nessun panic.
+- Il touch: da verificare con l'utente in questo avvio (wland ora parte dopo
+  il voto L6C del touch).
