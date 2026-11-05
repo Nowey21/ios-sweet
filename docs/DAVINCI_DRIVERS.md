@@ -307,3 +307,17 @@ di accendere GPU e Wi-Fi.
   **Boot 11** in attesa del fastboot: deve dare lo stesso risultato di prima
   (schermata di blocco, touch, tasti, rete USB) più il file server flame
   (TCP 2223).
+- **Boot 11** (`shim-boot-0202.img`, serie completa): foto (locale
+  `docs/davinci/boot11.jpg`): 6/6 CPU, UFS in lettura e scrittura, log
+  persistente, AMFI/Sandbox/HFS registrati, Skywalk OK. Il cpufreq di flame
+  legge comunque le tabelle OSM (sola lettura, "index … kept") e i valori
+  sono quelli di davinci: A55 300–1804 MHz, A76 300–2208 MHz → gli indirizzi
+  OSM di SM8150 coincidono su SM7150.
+- **Ma l'USB non parte**: nessun dispositivo `1209:*` su Windows dopo 4
+  minuti. Causa: la 0088 di flame sostituisce gli offset dei clock GCC
+  dell'USB con quelli di SM8150 (`cfg-noc-axi` 0x0f078 ecc.); il driver avvia
+  il dispositivo solo se `cbcr[0]` (master) e `cbcr[3]` (cfg-noc-axi) sono
+  accesi, e su davinci a quell'offset legge un altro registro.
+- Correzione in `0200-davinci-board`: tabella dei clock USB di sweet
+  (`cfg-noc-axi` 0x0502c, `aggre-axi` 0x8201c, `ahb2phy` 0x6a004, `clkref`
+  0x8c010). Patch 0200–0202 rigenerate (LF).

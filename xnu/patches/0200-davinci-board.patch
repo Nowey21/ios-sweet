@@ -127,9 +127,29 @@ index 99a9c87..1f2045e 100755
  	char magic[8];
  	uint64_t total;
 diff --git a/bsd/dev/sweet_usb.c b/bsd/dev/sweet_usb.c
-index 1116ace..6506edd 100755
+index 1116ace..54db79c 100755
 --- a/bsd/dev/sweet_usb.c
 +++ b/bsd/dev/sweet_usb.c
+@@ -52,14 +52,14 @@ static const struct {
+ 	const char *name;
+ 	uint32_t    off;
+ } usb_cbcr[] = {
+-	/* flame (SM8150, gcc-sm8150.c); index 0 master and 3 cfg-noc-axi gate DWC3 reads */
++	/* davinci = SM7150 like sweet; index 0 master and 3 cfg-noc-axi gate DWC3 reads */
+ 	{ "master", 0x0f010 },
+ 	{ "sleep", 0x0f014 },
+ 	{ "utmi", 0x0f018 },
+-	{ "cfg-noc-axi", 0x0f078 },
+-	{ "aggre-axi", 0x0f07c },
+-	{ "phy-aux", 0x0f050 },
+-	{ "clkref", 0x8c008 },
++	{ "cfg-noc-axi", 0x0502c },
++	{ "aggre-axi", 0x8201c },
++	{ "ahb2phy", 0x6a004 },
++	{ "clkref", 0x8c010 },
+ };
+ 
+ #define DWC3_PA                 0x0a600000
 @@ -1251,7 +1251,7 @@ ud_hsphy_dump(vm_offset_t p, const char *when)
  static void
  ud_hsphy_init(void)
