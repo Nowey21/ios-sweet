@@ -467,3 +467,24 @@ tornare al fastboot.
   chiave pubblica adb di questo PC in `/adb_keys` →
   `recovery/recovery-adbkey.img` (escluso da git), da avviare con
   `fastboot boot` (la partizione recovery non viene scritta).
+- **Log di boot 5** letto da recovery: `tools/davinci-mkrecovery.sh` →
+  `fastboot boot recovery/recovery-adbkey.img` → adb come root, poi gli ultimi
+  1025 blocchi di `userdata` (stesso calcolo di `sweet-log-pull.sh`, fatto a
+  mano perché lo script usa `python3`, che su Windows non c'è) →
+  `logs/boot5.txt` (1932 righe, 146 984 byte, 50 flush; `logs/` escluso da git).
+- Cosa dice il log:
+  - nessun crash dei processi grafici; l'unico `CRASH` è driverkitd (sig 9);
+  - backboardd apre AppleCLCD e IOCoreSurfaceRoot, accende il display
+    (`SWEET FB: display on`), cerca la GPU (`IOAcceleratorES` → none, come su
+    sweet) e poi **crea due superfici 1125×2436 BGRA** e **presenta frame**:
+    `SWEET FB: swap 2/3/4 layer 0 … 1125x2436`. Il logo Apple sullo schermo
+    è quindi disegnato da iOS stesso (CoreAnimation in software);
+  - insieme parte `com.apple.datamigrator` (lanciato 2 volte): la migrazione
+    dei dati del primo avvio. Su sweet (NOTES.md, boot 0053s) la stessa fase
+    ha tenuto il logo con la barra per ~60 minuti, prima che
+    `sweet-root-tweaks.py` impostasse `LastSystemVersion`;
+  - dopo lo swap 4 il log contiene solo i riavvii di bluetoothd/fairplayd e
+    xpcproxy: il sistema è vivo ma non disegna altro.
+- Ipotesi: è ancora la migrazione del primo avvio (silenziosa nel log) e
+  serve solo più tempo. Prossima prova: avvio normale (`-rw`, senza console)
+  lasciato acceso 20-30 minuti in carica.

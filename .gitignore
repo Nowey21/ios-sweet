@@ -11,3 +11,4 @@ __pycache__/
 
 # davinci test photos (show the user's desk): local only
 docs/davinci/*.jpg
+logs/
