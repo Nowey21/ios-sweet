@@ -333,3 +333,15 @@ di accendere GPU e Wi-Fi.
   anche il blocco di boot 11, non solo i clock USB.
 - Correzione in `0200-davinci-board`: solo i due cluster di davinci (A55×6 a
   0x18323000, A76×2 a 0x18325800). Patch 0200–0202 rigenerate.
+- **Firmware dal telefono** (da recovery, sola lettura, SHA-256 verificati):
+  `backup/modem.img` (320 MiB), `backup/bluetooth.img` (1 MiB),
+  `backup/dsp.img` (64 MiB); FAT con settori da 4096 byte, letti con `mtools`.
+  Estratti in `research/fw/` (escluso da git):
+  - `modem/`: `modem.mdt` + `modem.bNN`, `modemr.jsn`, **`modemuw.jsn`**,
+    `wlanmdsp.mbn` (firmware Wi-Fi che gira sul modem), `bdwlan.bin` e 33
+    varianti `bdwlan.1xx`/`2xx`/`bxx` (il driver sceglie per board ID, che
+    arriva dal firmware via QMI: il nome giusto si vedrà dal log di `wland`);
+    anche `adsp*.jsn`, `cdspr.jsn`, `qdsp6m.qdb`;
+  - `bluetooth/`: `crbtfw11/20/21.tlv`, `crnv11/20/21.bin`.
+  Sono gli stessi file che ios-flame mette in `/var/local/fw/modem` sul
+  telefono.
