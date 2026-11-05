@@ -167,3 +167,45 @@ le rail e lo stato del chip.
 - Nuovo `tools/davinci-usbnet.ps1`: aspetta la scheda, imposta l'IP una volta,
   stampa (e salva con `-Log`) il log dal vivo. usbipd e WSL non servono più
   per la rete.
+
+### Strategia per Wi-Fi e GPU: partire dalla serie del Pixel 4
+
+- Clonato [NWylynko/ios-flame](https://github.com/NWylynko/ios-flame) (commit `745c434`, 2026-10-22) in
+  `research/ios-flame` (escluso da git).
+- Albero di lavoro in WSL `/root/xnu-work` (git): base = albero della CI con
+  0001–0081 di sweet; ramo `master` = base + nostre 0082–0084; ramo `flame` =
+  base + **tutta la serie di ios-flame 0082–0124, applicata in ordine senza
+  conflitti** (39 patch, 51 file, +9579 righe).
+- File toccati da entrambe le serie: `sweet_touch.c`, `sweet_rpmh.c`,
+  `sweet_usb.c`, `SweetHID.cpp`.
+- Cosa contiene la serie flame (dal suo NOTES.md e dal diff):
+  - **infrastruttura**: `sweet_pmem.c` (/dev/pmem: memoria fisica e chiamate
+    SCM per i driver userland), `sweet_files.c` (file server TCP), comandi
+    UDP, RPMh generico da userland (`sweet_rpmh.c`), log dei panic, RTC,
+    cpufreq, fallback di clonefile su HFS, AMFI per dyld/trust cache;
+  - **GPU**: `sweet_a6xx.c`/`sweet_gpu.c` (core A640, GMU, page table,
+    submit), `SweetAccelerator.cpp` (IOAcceleratorES per Metal),
+    `SweetGPUABI.h` (ABI per Turnip), maschera degli angoli del display;
+  - **Wi-Fi**: `flame_wlan.c`, `redwood_apple80211.c`, `redwood_net.c`,
+    `redwood_sta.c`, `RedwoodWLAN.cpp`, `MiniIONetworkStack.cpp` (en0 +
+    Apple80211 per wifid), più il demone `wland` in userland
+    (`phone/wifi`, ~5500 righe: smem, glink, QMI, SCM, rmtfs, pdmapper, wlfw,
+    ath10k per WCN3990).
+- Parti **specifiche del Pixel 4** da adattare a davinci:
+  - `pexpert/pexpert/arm64/SWEET.h`, `start.s`, `sweet_early.c`,
+    `arm_vm_init.c`: framebuffer 0x9c400000 / 2280 righe (davinci 0x9c000000 /
+    2340), costanti a tempo di compilazione;
+  - 0085 touch ST FTS su SPI → su davinci il nostro GT9886 (0082/0083);
+  - 0086 cpufreq: SM8150 1+3+4 core → SM7150 2 A76 + 6 A55;
+  - 0088 offset USB di SM8150 → quelli di SM7150 di sweet, più il nostro NCM;
+  - 0099 RTC del PM8150 → PM6150;
+  - tasti: vol+ su PM8150 GPIO6 → su davinci PM6150L GPIO2 (come sweet);
+  - GPU A640 → **A618** (GMU `a618_gmu.bin`, zap `a615_zap`, livelli di
+    potenza, clock `gpucc-sdmmagpie`, numero di SP/cluster);
+  - Wi-Fi in userland: regione del modem 0x8dc00000 → **0x8b000000**
+    (0x8400000 byte), MSA 0x8bc00000 → **0x97d00000** (DT `wlan_msa_region`;
+    `qcom,wlan-msa-memory` = 1 MiB), firmware e board data di davinci.
+    Uguali: smem 0x86000000, WCSS 0x18800000, apps SMMU 0x15000000, IPC
+    APCS 0x17c0000c.
+- Il codice userland (wland, Turnip, metal2vulkan) si compila con Xcode +
+  SDK iOS: serve un workflow sui runner macOS di GitHub Actions.
