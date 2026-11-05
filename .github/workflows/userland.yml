@@ -8,6 +8,7 @@ on:
     branches: [davinci]
     paths:
       - "phone/wifi/**"
+      - "phone/tools/**"
       - "phone/turnip/v2test.cpp"
       - "phone/turnip/NativeAdrenoABI.h"
       - ".github/workflows/userland.yml"
@@ -39,6 +40,12 @@ jobs:
             -I "$inc" -I phone/turnip -o phone/wifi/out/v2test phone/turnip/v2test.cpp -framework IOKit
           codesign -f -s - phone/wifi/out/v2test
           file phone/wifi/out/v2test
+
+      - name: phone tools (ios-flame: lsreg, prefs, oslog, psx, ...)
+        run: |
+          sh phone/tools/build.sh
+          mkdir -p phone/wifi/out/tools && cp phone/tools/out/* phone/wifi/out/tools/
+          for f in phone/tools/out/*; do nm -m "$f" | grep "weak external" | grep -v "dynamically looked up" | sed "s|^|$f: |" || true; done
 
       - name: Check binaries
         run: |
