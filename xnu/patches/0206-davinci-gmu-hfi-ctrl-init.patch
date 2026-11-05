@@ -1,0 +1,30 @@
+diff --git a/bsd/dev/sweet_a6xx.c b/bsd/dev/sweet_a6xx.c
+index 1a3c327..071123f 100644
+--- a/bsd/dev/sweet_a6xx.c
++++ b/bsd/dev/sweet_a6xx.c
+@@ -128,7 +128,8 @@ static void zero_pa(uint64_t pa, uint64_t size)
+ #define GMU_RPMH_CTRL	0x1f8e8
+ #define GMU_CP_MSG	0x1f900
+ #define GMU_CP_RESP	0x1f901
+-#define GMU_HFI_CTRL	0x1f980
++#define GMU_HFI_CTRL	0x1f980	/* HFI_CTRL_STATUS */
++#define GMU_HFI_CTRL_INIT	0x1f986
+ #define GMU_SFR_ADDR	0x1f982
+ #define GMU_QTBL_INFO	0x1f984
+ #define GMU_QTBL_ADDR	0x1f985
+@@ -624,6 +625,15 @@ static int gmu_hfi(struct a6_gpu *g)
+ 	a6_log("gmu: gfx rail oob %s, sptprac %s (%x)\n", rail ? "TIMEOUT" : "acked", sptp ? "TIMEOUT" : "on",
+ 	       rd32(GMU_REG(GMU_SPTPRAC_STATUS)));
+ 
++	/* a6xx_gmu_hfi_start: the GMU sets up its queues */
++	uint32_t g2h = rd32(GMU_REG(GMU_G2H_INFO));
++	wr32(GMU_REG(GMU_HFI_CTRL_INIT), 1);
++	int qs = wait_bit(GMU_REG(GMU_HFI_CTRL), 1, 1, 10);
++	a6_log("gmu: hfi queues %s (status %x; g2h info before %x, after %x)\n", qs ? "TIMEOUT" : "started",
++	       rd32(GMU_REG(GMU_HFI_CTRL)), g2h, rd32(GMU_REG(GMU_G2H_INFO)));
++	if (qs)
++		return -1;
++
+ 	/* a6xx_hfi_start_v1 */
+ 	memset(msg, 0, sizeof(msg));
+ 	msg[1] = 0;			/* seg_id */
