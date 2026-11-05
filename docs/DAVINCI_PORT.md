@@ -423,3 +423,8 @@ tornare al fastboot.
 - L'utente ha dato il via finale al flash. ABL: `max-download-size`
   0x30000000 (768 MiB). Avviato `fastboot -S 512M flash userdata
   research/ios16-root.simg`.
+- **Flash riuscito**: 24/24 blocchi sparse, tutti `OKAY`, 293 s in totale.
+- `fastboot boot shim/out/shim-boot-xnu-rw.img` subito dopo: nessuna risposta
+  per oltre 60 s, senza output. È il blocco del fastboot di Xiaomi dopo un
+  flash grande, già descritto nel README di sweet. Rimedio: Power + Volume giù
+  per rientrare nel fastboot, poi ripetere `fastboot boot`.
