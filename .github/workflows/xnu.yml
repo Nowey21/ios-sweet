@@ -72,7 +72,15 @@ jobs:
         env:
           # keep going after errors so one run reports every compile failure
           MAKEFLAGS: ${{ inputs.keep_going == 'false' && '' || '-k' }}
-        run: bash build.sh
+        # build.sh only warns when a patch does not apply ("Skipping patch")
+        # and builds anyway: fail the job if one of ours was skipped.
+        run: |
+          set -o pipefail
+          bash build.sh 2>&1 | tee ../build-output.log
+          if grep -E "Skipping patch .*/[0-9]{4}-(sweet|flame|davinci)-" ../build-output.log; then
+            echo "::error::a series patch did not apply (see the lines above)"
+            exit 1
+          fi
 
       - name: Package build tree for local compiles
         if: always()

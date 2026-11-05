@@ -268,3 +268,16 @@ di accendere GPU e Wi-Fi.
   locale con Xcode 16 e mai nel workflow della CI (macos-14, Xcode 15). La
   0082-flame (IORPC.kernelContent) serve con Xcode 16; con Xcode 15 da
   verificare.
+- **CI run `42034829990`: compilata ma senza la serie.** Il kernel aveva la
+  stessa dimensione del primo kernel di sweet e nessuna stringa di flame o
+  davinci. Nel log: `Skipping patch ... 0082-flame-...: patch does not apply`
+  per tutte le patch flame e quindi anche per 0200–0202; `build.sh` di
+  darwin-xnu-build **avvisa e compila lo stesso**. Causa: le patch flame
+  copiate avevano fine riga **CRLF** (clone di ios-flame fatto con
+  `core.autocrlf` di Git per Windows). GNU `patch`, usato in locale, toglie i
+  CR da solo; `git apply`, usato in CI, no.
+- Correzioni: patch flame convertite in LF; clone `research/ios-flame`
+  ricaricato con `core.autocrlf=false`; verificato in locale che tutte le 42
+  patch (0082–0124, 0200–0202) si applicano **con `git apply`** in ordine.
+  Il workflow `xnu.yml` ora salva l'output di `build.sh` e **fallisce** se una
+  patch `NNNN-sweet|flame|davinci-*` viene saltata.
