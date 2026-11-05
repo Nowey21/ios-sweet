@@ -790,9 +790,13 @@ nero**, Wi-Fi che si accende tardi e va **ricollegato a mano** a ogni avvio,
     secondi"). Compilati in CI (`userland.yml`), nessun simbolo weak.
   - GitHub da stasera rifiuta `macos-14` ("The configuration
     'macos-14-arm64-us-default' is not supported"): `userland.yml` passato a
-    **macos-15** (run `42095942973` riuscito). `xnu.yml` e
-    `gpu-userland.yml` sono ancora su macos-14 e andranno spostati alla
-    prossima build.
+    **macos-15** (run `42095942973` riuscito). Anche `xnu.yml` e
+    `gpu-userland.yml` ora su macos-15: il kernel 0206 si compila con
+    Xcode 16 (run `42097564172`, 8 min 49 s; la 0082 di flame copre l'iig
+    nuovo), ma il binario (17 874 056 byte, in `xnu/out-0206-x16/`) **non è
+    ancora stato avviato**: le immagini del mattino usano quello di macos-14.
+    gpu-userland su macos-15 (run `42097524131`) non è partito per mancanza
+    di runner GitHub ("not acquired by Runner"), da rilanciare quando serve.
   - `tools/davinci-batch1-install.sh USERLAND_DIR`: installa in un colpo
     wland nuovo, gli strumenti, `mtl2-clients` = `* -chronod`, toglie i job
     v2test/vktest (vktest girava ogni 120 s), aggiunge i job `lsreg`
