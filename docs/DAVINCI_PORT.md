@@ -428,3 +428,9 @@ tornare al fastboot.
   per oltre 60 s, senza output. È il blocco del fastboot di Xiaomi dopo un
   flash grande, già descritto nel README di sweet. Rimedio: Power + Volume giù
   per rientrare nel fastboot, poi ripetere `fastboot boot`.
+- Il `fastboot boot` bloccato si è chiuso con `Status read failed (Too many
+  links)`; il telefono è tornato visibile nel fastboot (`product: davinci`).
+- **Boot 4** (commit `9164a7d`): `fastboot boot shim/out/shim-boot-xnu-rw.img`
+  → `Booting OKAY`. Primo avvio di iOS dalla root su `userdata`. In attesa di
+  foto dello schermo (atteso: 4-5 minuti sul logo Apple, poi la schermata di
+  blocco).
