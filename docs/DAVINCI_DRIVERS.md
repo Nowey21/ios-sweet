@@ -97,3 +97,18 @@ le rail e lo stato del chip.
 | Wi-Fi | ios-flame (stesso chip) | media | build userland iOS (macOS), rete USB, firmware modem dal telefono |
 | GPU | ios-flame (stessa generazione), Mesa Turnip/freedreno | alta | come sopra + Mesa per iOS |
 | Bluetooth | nessuna | molto alta (problema aperto) | Wi-Fi funzionante |
+
+## Diario
+
+### 2026-11-05
+
+- Rete USB: già nel kernel di sweet (patch 0072–0077), si accende con il
+  boot-arg `sweetusb=2`: il telefono si presenta come `1209:0001` con una
+  funzione **CDC-ECM** (telefono 192.168.7.2, PC 192.168.7.1, log del kernel
+  dal vivo su UDP 5140, `tools/sweet-usbnet.sh`). Windows non ha un driver
+  CDC-ECM, quindi la scheda va passata a WSL con **usbipd-win**. Il kernel di
+  WSL ha `CONFIG_USBIP_VHCI_HCD=m`, `CONFIG_USB_USBNET=m`,
+  `CONFIG_USB_NET_CDCETHER=m`; i moduli corrispondenti (`vhci-hcd.ko`,
+  `usbip-core.ko`, `usbnet.ko`, `cdc_ether.ko`) sono già compilati con gcc 13
+  in `/root/wslk` (stesso build del modulo hfsplus).
+- Immagine `shim/out/shim-boot-0083-usb.img` = 0083 + `sweetusb=2`.
