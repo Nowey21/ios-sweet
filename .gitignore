@@ -8,3 +8,6 @@ shim/out/
 xnu/out/
 xnu/out-*/
 __pycache__/
+
+# davinci test photos (show the user's desk): local only
+docs/davinci/*.jpg
