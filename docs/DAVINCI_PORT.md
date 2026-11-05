@@ -147,7 +147,51 @@ Conseguenza: per XNU il Mi 9T si comporta come sweet. Bastano indirizzo,
 dimensioni e stride; **nessun kick**. Lo shim ora legge soltanto i registri e
 li mostra per 8 secondi su sfondo verde.
 
-### Test 2: memoria UFS (da fare)
+### Test 2: risultato (2026-11-05)
+
+Foto: [boot2-ufs.jpg](davinci/boot2-ufs.jpg). **La UFS funziona come su sweet.**
+
+| Riga | Valore | Significato |
+| --- | --- | --- |
+| `ver` / `cap` | 0x210 / 0x1587031F | UFSHCI 2.1, 32 slot (`nutrs=0x20`) |
+| `hce` / `hcs` | 1 / 0x10F | host abilitato, dispositivo presente, liste pronte: ABL lascia il link acceso |
+| `utrlba` | 0x9998D000 | lista di ABL; lo shim la sposta sulla propria (`ours=0x80095000`) |
+| TUR, READ CAPACITY, READ | rc=0, ocs/st=0 | comandi SCSI riusciti |
+| LUN 0 | lastlba 0x1D7CFFF, blocchi da 4096 byte | 0x1D7D000 × 4 KiB = 0x1D7D000000 byte = `partition-size:sda` di fastboot |
+| MBR / GPT | 0xAA55, tipo 0xEE, "EFI PART", 32 voci | GPT protettiva normale |
+| `userdata` | LBA 0x1B4200, 0x1BC8D MiB (≈ 111 GiB), fs "other" | uguale a fastboot (`0x1BC8DFB000`); "other" = f2fs di Android |
+
+Conseguenze:
+- Il driver UFS di XNU (patch 0028) cerca la partizione **per nome** nella GPT
+  (`ufsroot=`, predefinito `userdata`): sul Mi 9T funziona senza modifiche.
+- Lo strumento del log (`tools/sweet-log-pull.sh`) legge gli ultimi blocchi di
+  `userdata` tramite adb da recovery: funziona uguale, ma serve una recovery con
+  adb root (dopo l'installazione di iOS, LineageOS non si avvierà più).
+
+### Cosa manca per il primo avvio di XNU
+
+Con schermo, RAM, GIC, timer, CPU e UFS uguali a sweet, **il kernel di sweet
+così com'è dovrebbe già arrivare alla schermata di blocco** (ipotesi). Senza
+touch, e con l'immagine spostata di 60 righe (sweet disegna 2400 righe, il
+pannello ne mostra 2340; il buffer di 0x1700000 byte basta per 2400 righe,
+quindi non si scrive fuori dalla zona riservata). I tasti dovrebbero
+funzionare, perché sono sugli stessi pin.
+
+Le patch del kernel da adattare dopo il primo avvio:
+
+| Patch | Cosa cambiare |
+| --- | --- |
+| 0010, 0012 | `EARLY_HEIGHT` 2400 → 2340 (console di debug) |
+| 0046 | `SWEET_FB_DOT_PITCH` 395 → 403 ppi (6,39", 1080×2340) |
+| 0061 | adattamento 1125×2436 → 1080×2340 e normalizzazione del touch |
+| 0058 | normalizzazione del touch su 2340 righe |
+| 0060, 0062, 0063 | touch GT9886: rail PM6150L **LDO6** al posto di LDO11, AVDD con il GPIO 5 del TLMM, protocollo GT9886 da confrontare con il GT9896 |
+
+Le patch si applicano in sequenza (la 0012 modifica righe della 0010), quindi
+le modifiche per davinci andranno in una patch finale separata, generata
+sull'albero xnu già patchato.
+
+### Test 2: memoria UFS (fatto)
 
 Stesso shim, nuova versione: dopo la schermata verde dei registri del display
 esegue la sonda UFS di sweet (`shim/ufs.c`). È **sola lettura**: nel file non
@@ -172,7 +216,7 @@ tornare al fastboot.
 ## Piano
 
 1. ✅ Accesso root, backup, device tree.
-2. ⬜ Shim per davinci: dimensioni del framebuffer, kick del command mode.
+2. ✅ Shim per davinci: schermo (nessun kick necessario) e UFS verificati.
    Prova con `fastboot boot` (non scrive niente sul telefono).
 3. ⬜ ADT (`tools/mkadt.py`): 1080×2340, il resto come sweet.
 4. ⬜ Patch del kernel: 0061 (dimensioni), 0060/0062/0063 (touch GT9886,
@@ -224,3 +268,7 @@ tornare al fastboot.
   telefono si riavvia da solo.
 - Shim modificato: lettura dei registri del display e basta (tolti autorefresh
   e kick), poi la sonda UFS in sola lettura.
+- **Boot 2** (commit `c492e31`): `adb reboot bootloader`, `fastboot boot
+  shim/out/shim-boot.img` → `Booting OKAY`. Schermata verde dei registri, poi
+  la sonda UFS: link attivo, letture riuscite, GPT e `userdata` trovate
+  (vedi "Test 2: risultato").
