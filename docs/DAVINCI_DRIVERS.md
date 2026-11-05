@@ -243,3 +243,28 @@ Prossimo passo: una patch "board davinci" sopra flame con queste modifiche,
 più la riscrittura delle nostre 0082–0084; poi un avvio che deve dare lo
 stesso risultato di oggi (schermata di blocco, touch, tasti, rete USB) prima
 di accendere GPU e Wi-Fi.
+
+### Serie di patch per davinci con flame (2026-11-05)
+
+`xnu/patches/` ora è: ios-sweet 0001–0081 + **ios-flame 0082–0124 invariate**
++ davinci:
+- `0200-davinci-board.patch` (9 file, da `research/davinci-flame/board.py`):
+  console di avvio 0x9c000000 / 2340 righe (`SWEET.h`), pannello touch 2340 e
+  147 mm (`SweetHID.cpp`), vol+ su PM6150L GPIO2 SID 4 (`sweet_keys.c`),
+  default spenti per l'FTS (`flametouch`), il cpufreq SM8150 (`flamecpufreq`)
+  e il PHY femto (`sweethsphy`), touch Redmi/davinci acceso (`sweettouch`),
+  copia del log a 0x1fb000000 (`sweet_ufs.c`), `A6_FB_PA` 0x9c000000.
+- `0201-davinci-gt9886-touch.patch`: il GT9886 (stesso codice di prima) sopra
+  la versione flame di `sweet_touch.c`; `ldoc6` aggiunto ai rail ammessi da
+  `sweet_rpmh.c`.
+- `0202-sweet-usb-ncm.patch`: la NCM sopra la versione flame di
+  `sweet_usb.c` (che registra anche i frame con `ud_log_frame`).
+- Le vecchie 0082–0084 (sulla sola base sweet) sono in
+  `xnu/patches-davinci-sweetbase/`.
+- `tools/mkadt.py --davinci`: RAM di XNU 0x100000000 + 0xf9c00000, `/pram`
+  0x1fa000000 (512 KiB), nodo `/arm-io/wlan`, MAC per MobileGestalt.
+  Senza `--davinci` l'ADT di sweet è identico a prima (12 772 byte).
+- Attenzione: ios-flame dice che la sua serie è stata compilata solo in
+  locale con Xcode 16 e mai nel workflow della CI (macos-14, Xcode 15). La
+  0082-flame (IORPC.kernelContent) serve con Xcode 16; con Xcode 15 da
+  verificare.

@@ -2,7 +2,13 @@
 """Build the minimal Apple Device Tree that the SWEET xnu needs to boot.
 
 Only what the early boot path actually reads (see NOTES.md); every MMIO
-address comes from the sweet live FDT. Usage:  mkadt.py OUT.adt [--dump] [--qemu] [--highmem]
+address comes from the sweet live FDT. Usage:  mkadt.py OUT.adt [--dump] [--qemu] [--highmem] [--davinci]
+
+--davinci (Mi 9T, implies --highmem): for a kernel with the ios-flame series
+(patches 0082-0124 + 0200-0202). davinci's upper bank also ends at
+0x1fcc00000, but that series keeps a console mirror (sweet_ufs.c, 0x1fb000000)
+and a fixed /pram above XNU's RAM, so XNU stops at 0x1f9c00000. It also adds
+flame's /arm-io/wlan node (wifid) and the MobileGestalt MAC addresses.
 """
 import hashlib, os, struct, sys
 
@@ -74,12 +80,24 @@ def node(name, props=(), children=()):
     return n
 
 
-def build(seed=None, qemu=False, highmem=False):
+# --davinci: XNU 0x1_00000000..0x1_f9c00000, /pram at 0x1_fa000000 (512 KiB),
+# console mirror at 0x1_fb000000 (4 MiB + 4 KiB, sweet_ufs.c), all below the
+# end of davinci's upper bank (0x1_fcc00000).
+DAVINCI_MEM_SIZE = 0xf9c00000
+DAVINCI_PRAM_PA, DAVINCI_PRAM_SIZE = 0x1fa000000, 0x80000
+
+
+def build(seed=None, qemu=False, highmem=False, davinci=False):
     """qemu=True: same tree, but with QEMU virt's GIC addresses and CNTFRQ (tools/qemu-sweet.py)."""
     phys_base, mem_size = (HIGH_PHYS_BASE, HIGH_MEM_SIZE) if highmem else (PHYS_BASE, MEM_SIZE)
-    # Carve the panic log off the top so the kernel never allocates over it.
-    panic_base = phys_base + mem_size - PANIC_LOG_SIZE
-    mem_size -= PANIC_LOG_SIZE
+    panic_size = PANIC_LOG_SIZE
+    if davinci:
+        phys_base, mem_size = HIGH_PHYS_BASE, DAVINCI_MEM_SIZE
+        panic_base, panic_size = DAVINCI_PRAM_PA, DAVINCI_PRAM_SIZE
+    else:
+        # Carve the panic log off the top so the kernel never allocates over it.
+        panic_base = phys_base + mem_size - PANIC_LOG_SIZE
+        mem_size -= PANIC_LOG_SIZE
     gicd, gicr, timebase = (QEMU_GICD, QEMU_GICR, QEMU_TIMEBASE) if qemu else (GICD, GICR, TIMEBASE)
     seed = seed if seed is not None else os.urandom(64)
     phandle = iter(range(1, 1000))
@@ -91,7 +109,7 @@ def build(seed=None, qemu=False, highmem=False):
         ('dram-size', u64(mem_size)),
         ('random-seed', seed),
         ('debug-enabled', u32(1)),
-        ('embedded-panic-log-size', u32(PANIC_LOG_SIZE)),
+        ('embedded-panic-log-size', u32(panic_size)),
         ('firmware-version', cstr('sweet-shim')),
         ('system-firmware-version', cstr('sweet-shim')),
         # iBoot's SHA-384 of the boot manifest; /sbin/mount -P 1 exits unless
@@ -121,7 +139,14 @@ def build(seed=None, qemu=False, highmem=False):
         ('effective-production-status-ap', u32(0)),
         ('certificate-security-mode', u32(1)),
         ('effective-security-mode-sep', u32(1)),
-    ], [node('memory-map', [ph()]),
+    ] + ([
+        # flame: MobileGestalt's WiFi/Bluetooth/Ethernet addresses (installd
+        # waits 5 s per bundle without them). Locally administered, not the
+        # phone's own.
+        ('mac-address-wifi0', bytes([0x02, 0x50, 0x49, 0x58, 0x45, 0x4c])),
+        ('mac-address-bluetooth0', bytes([0x02, 0x50, 0x49, 0x58, 0x45, 0x4d])),
+        ('mac-address-ethernet0', bytes([0x02, 0x50, 0x49, 0x58, 0x45, 0x4e])),
+    ] if davinci else []), [node('memory-map', [ph()]),
         # Local boot policy (kern_csr.c): SIP relaxed like `csrutil disable`
         # (lp-sip0: untrusted kexts, unrestricted FS, task_for_pid, kernel
         # debugger, dtrace, nvram), lp-sip1: unauthenticated (unsealed) root.
@@ -187,7 +212,15 @@ def build(seed=None, qemu=False, highmem=False):
             ('compatible', cstr('sweet,display')),
             ('canvas-width', u32(1125)),
             ('canvas-height', u32(2436)),
-        ])])
+        ])] + ([
+        # flame: launchd starts wifid only with a "wlan" device tree node
+        # (_LimitLoadToDeviceTree); flame_wlan.c's en0 + Apple80211 answer it.
+        node('wlan', [
+            ph(),
+            ('device_type', cstr('wlan')),
+            ('compatible', cstr('flame,wcn3990')),
+        ]),
+    ] if davinci else []))
 
     fbcon = node('sweet-fbcon', [
         ph(),
@@ -224,7 +257,7 @@ def build(seed=None, qemu=False, highmem=False):
 
     # Panic log region. /pram reg = <phys size>; it sits just above the
     # dram-size we expose, so XNU maps it but never allocates into it.
-    pram = node('pram', [ph(), ('reg', u64(panic_base) + u64(PANIC_LOG_SIZE))])
+    pram = node('pram', [ph(), ('reg', u64(panic_base) + u64(panic_size))])
 
     # Identity of the iPhone X whose userland runs here: compatible[0] is
     # hw.model/hw.target (D22AP), model is hw.machine/hw.product
@@ -242,7 +275,7 @@ def build(seed=None, qemu=False, highmem=False):
 
 
 if __name__ == '__main__':
-    root = build(qemu='--qemu' in sys.argv, highmem='--highmem' in sys.argv)
+    root = build(qemu='--qemu' in sys.argv, highmem='--highmem' in sys.argv, davinci='--davinci' in sys.argv)
     blob = adt.serialize(root)
     open(sys.argv[1], 'wb').write(blob)
     if '--dump' in sys.argv:
