@@ -34,9 +34,9 @@ env:
 
 jobs:
   build:
-    # macos-14 still ships Xcode 15.x: its iig matches the xnu-8796 IORPC ABI
-    # (Xcode 16's iig emits IORPC.kernelContent, which this xnu lacks)
-    runs-on: macos-14
+    # Xcode 16's iig emits IORPC.kernelContent: xnu patch 0082 (ios-flame) adds it.
+    # macos-14 (Xcode 15) is refused since 2026-11-05 ("configuration not supported").
+    runs-on: macos-15
     timeout-minutes: 120
     steps:
       - uses: actions/checkout@v4
