@@ -1,9 +1,16 @@
 name: gpu-userland
 
 # Turnip (Mesa Vulkan for Adreno) for iOS 16 arm64 with the darwin kernel
-# backend, plus the vktest smoke test (phone/turnip). Heavy: run by hand.
+# backend, plus the vktest smoke test (phone/turnip). Heavy: runs when
+# phone/turnip or this file changes on the davinci branch (a dispatch-only
+# workflow would have to live on the default branch).
 on:
   workflow_dispatch:
+  push:
+    branches: [davinci]
+    paths:
+      - "phone/turnip/**"
+      - ".github/workflows/gpu-userland.yml"
 
 jobs:
   turnip:
