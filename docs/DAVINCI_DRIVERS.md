@@ -467,6 +467,8 @@ pannello. Valori del Pixel 4 sostituiti con quelli di davinci
 | RB_CCU_CNTL sysmem | 0x10000000 (2 CCU) | **0x08000000** (1 CCU) | Mesa: offset colore = num_ccu × 64 KB |
 | pannello per il blit | 1080×2280 | 1080×2340 | |
 | SMMU SID | GPU 0, GMU 5 | uguali (DT: gfx3d_user 0, gmu kernel 5) | DT iommus |
+| identità per SweetMetal/Turnip (`SweetAccelerator.cpp`: selettore 0, GetDeviceInfo, `model`) | 640, 0x06040001, GMEM 1 MB, hbb 15, "Adreno 640" | **618, 0x06010800, GMEM 512 KB, hbb 14, "Adreno 618"** | deve coincidere con hw_init |
+| pool dei buffer GPU (RAM fuori da XNU, `sweet_gpu.c`) | 0xc4000000+448 MB, 0xe1000000+496 MB | uguale: su davinci il banco basso sopra 0xa1600000 ha solo `ramdump_fb_region` 0xaf000000 (prima del pool) | DT reserved-memory |
 
 Firmware estratti da vendor in `research/fw/gpu/` (escluso da git).
 `tools/mkpayload.py` ora è quello di ios-flame (MIT): `--gpufw DIR` mette i
