@@ -297,3 +297,13 @@ di accendere GPU e Wi-Fi.
   `xcrun --sdk iphoneos clang -arch arm64 -miphoneos-version-min=16.0`,
   firma ad hoc, segnala gli import deboli (simboli che iOS 16 potrebbe non
   avere), carica l'artifact `phone-userland`.
+- CI run `42036527881`: **la serie completa è nel kernel** (17 891 304 byte;
+  stringhe di flame, `/dev/pmem`, GT9886 e NCM presenti) → `xnu/out-0202/`.
+- `wland` compilato dal workflow userland (run `42036708394`, 16 s): Mach-O
+  arm64, firma ad hoc, SDK iPhoneOS 17.5 con minimo 16.0, nessun import
+  debole → `research/userland-out/wland` (locale).
+- Immagine `shim/out/shim-boot-0202.img`: kernel 0202 + ADT `--davinci` +
+  cmdline di 0084-ncm (`sweetboard=davinci sweetusb=2 sweetusbncm=1`).
+  **Boot 11** in attesa del fastboot: deve dare lo stesso risultato di prima
+  (schermata di blocco, touch, tasti, rete USB) più il file server flame
+  (TCP 2223).
