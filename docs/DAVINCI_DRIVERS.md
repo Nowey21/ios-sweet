@@ -749,3 +749,80 @@ da 2,5–3,5 ms, nessuno perso). Mancava solo `HFI_CTRL_INIT` (0206).
 - Prossimi passi per la fluidità: `cpus=8` (usare anche i due A76, mai
   provati su davinci), GPU a 565 MHz (`sweetgpufreq=5`), profilare i
   picchi lunghi.
+
+### Notte 5→6 novembre (utente via, telefono lasciato collegato)
+
+Problemi riferiti dall'utente su boot 24 (`0206mf`): ancora lag, **sfondo
+nero**, Wi-Fi che si accende tardi e va **ricollegato a mano** a ogni avvio,
+**Safari non disegna le pagine**, niente audio, Bluetooth, fotocamera.
+
+- **Telefono irraggiungibile** da ~20:30: la scheda NCM è enumerata
+  (`1209:0002`) ma Windows la dà "Disconnected", niente ping né fastboot.
+  Nessun live log attivo in quel momento (l'ultimo ascoltatore era morto
+  al riavvio precedente), quindi la causa non è nota: blocco del kernel o
+  solo del collegamento USB. `pnputil /restart-device` richiede i permessi di
+  amministratore. Serve Power+Vol- dell'utente. **Ipotesi da controllare**:
+  instabilità con `flamecpufreq=1` (A55 1804 / A76 2208 MHz) dopo diversi
+  minuti; se si ripete, provare `flamecpufreq=1708`.
+- **Soluzioni trovate in ios-flame (HANDOFF)**, preparate senza poterle
+  provare:
+  - Safari: WebContent senza un device Metal disegna nero; su flame
+    `/var/local/mtl2-clients` = `* -chronod` (tutti con Metal tranne
+    chronod, i cui widget con Metal sono bianchi). Da noi c'era solo
+    `SpringBoard`. La 0124 (superfici 10 bit di WebContent come BGRA) è già
+    nella serie.
+  - Sfondo: su flame era nero perché PosterBoard non trovava le estensioni
+    dei poster. Fix: kernel 0103 SweetAMFI (in serie), MAC nell'ADT (già in
+    `mkadt --davinci`) e **una volta `lsreg -r`** (ricostruisce il database
+    di LaunchServices: 515 estensioni, tutti i 10 provider di poster). I
+    poster (AegirPoster) vogliono anche un device Metal: coperto da `*`.
+  - Wi-Fi: su flame wifid si ricollega da solo dopo un join da Impostazioni
+    (password nel portachiavi). Da noi wland partiva a 90 s e la radio era
+    pronta a 123 s: **wland ora parte a 60 s** (il voto L6C del touch arriva
+    a 53 s). Per capire perché wifid non si ricollega: job `oslogwifi`
+    (log unificato di wifid per 15 minuti).
+- **Nuovo in git**:
+  - `phone/tools/` = gli strumenti di ios-flame (MIT): `lsreg`, `prefs`
+    (defaults), `oslog` (log unificato), `psx`, `pstack`, `nettest`,
+    `openapp`, `exq`, `expt`, `imgtest`, `membw`, `netsvc` (senza
+    `runmigrator`), più il nostro **`delayrun SECS PROGRAM`** (lancia una
+    volta, SECS secondi dopo l'avvio: launchd sa solo "all'avvio" o "ogni N
+    secondi"). Compilati in CI (`userland.yml`), nessun simbolo weak.
+  - GitHub da stasera rifiuta `macos-14` ("The configuration
+    'macos-14-arm64-us-default' is not supported"): `userland.yml` passato a
+    **macos-15** (run `42095942973` riuscito). `xnu.yml` e
+    `gpu-userland.yml` sono ancora su macos-14 e andranno spostati alla
+    prossima build.
+  - `tools/davinci-batch1-install.sh USERLAND_DIR`: installa in un colpo
+    wland nuovo, gli strumenti, `mtl2-clients` = `* -chronod`, toglie i job
+    v2test/vktest (vktest girava ogni 120 s), aggiunge i job `lsreg`
+    (`delayrun 150 lsreg -r`) e `oslogwifi`, poi `sync`. Artifact in
+    `research/userland-out-n/` (locale).
+- **Immagini per la fluidità**, tutte sul kernel 0206 con `sweetgpu=1
+  sweetmtl=2 flamecpufreq=1`:
+  - `shim-boot-0206mf8.img` (sha256 `9b780d37…`): **`cpus=8`** (ios-sweet
+    0078 ha già avviato 8 core su questo SoC; l'ADT ha 8 nodi CPU);
+  - `shim-boot-0206mf8g.img` (sha256 `a232774c…`): anche
+    `sweetgpufreq=5` (GPU 565 MHz).
+- **Audio, Bluetooth, fotocamera: valutazione.** ios-topaz (Redmi Note 12
+  4G, SM6225, clonato in `research/ios-topaz`) ha l'audio: ADSP (0144, 1557
+  righe), codec (0145, 898), stream (0146, 291), `/dev/redwood-audio`
+  (0935). È scritto per il loro hardware (codec digitale LPASS + codec
+  SoundWire); il Mi 9T ha un codec WCD934x su SLIMbus e un amplificatore
+  TFA9874 su I2C per l'altoparlante. Riutilizzabili il boot dell'ADSP via PAS
+  (come il modem in wland) e la parte APR/AFE; codec e amplificatore vanno
+  scritti da capo. Lavoro di più giorni, con l'utente vicino al telefono per
+  ascoltare. Bluetooth (WCN3990 via UART) e fotocamera: nessun port
+  (sweet, flame, topaz) li ha; topaz scrive "No Bluetooth ... audio, camera"
+  per bluetoothd. Non iniziati.
+
+**Piano del mattino** (con l'utente):
+1. Power+Vol- → fastboot; `fastboot boot shim/out/shim-boot-0206mf8.img`
+   (se non parte: `0206mf`).
+2. Appena c'è la rete: `bash tools/davinci-batch1-install.sh
+   research/userland-out-n`, poi `davinci-cmd.py reboot` e di nuovo
+   `fastboot boot` della stessa immagine.
+3. Controllare: sfondo dopo ~3 minuti (job `lsreg`), Safari, Wi-Fi da solo
+   (`/var/local/oslogwifi.out`), fps nel ring.
+4. Se va: provare `0206mf8g` (GPU 565 MHz). Poi togliere i job `lsreg` e
+   `oslogwifi`.

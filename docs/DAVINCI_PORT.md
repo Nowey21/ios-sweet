@@ -1,11 +1,13 @@
 # Port di ios-sweet su Mi 9T / Redmi K20 (davinci)
 
-> **Stato (2026-11-05, ~13:35): iOS 16.7.16 gira sul Mi 9T con schermata
-> di blocco, tasti fisici e touch funzionanti.** Kernel XNU di sweet + patch
-> `0082-davinci-gt9886-touch` + `0083-davinci-touch-panel-size` (boot-arg
-> `sweetboard=davinci`), shim con `BOARD=davinci`, root iOS su `userdata`.
-> Touch preciso e gesto Home funzionanti. Avvio: Power + Volume giù per il
-> fastboot, poi `fastboot boot shim/out/shim-boot-0083.img`.
+> **Stato (2026-11-05, sera): iOS 16.7.16 sul Mi 9T con touch, tasti,
+> Wi-Fi (WPA2 + DHCP) e l'interfaccia disegnata dalla GPU Adreno 618**
+> (Metal → metal2vulkan → Turnip). Serie: sweet 0001–0081 + ios-flame
+> 0082–0124 + davinci 0200–0206. Immagine d'uso:
+> `fastboot boot shim/out/shim-boot-0206mf.img` (`sweetgpu=1 sweetmtl=2
+> flamecpufreq=1`). Ancora lenta (fino a ~27 fps), sfondo nero, Safari non
+> disegna le pagine; mancano audio, Bluetooth, fotocamera. Dettagli e piano:
+> [DAVINCI_DRIVERS.md](DAVINCI_DRIVERS.md) (in fondo: "Notte 5→6 novembre").
 
 Documento di lavoro del port. Ogni passo, ogni boot e ogni decisione vengono
 annotati qui (sezione "Diario"). Si distingue sempre tra **osservato** (visto sul
@@ -271,7 +273,11 @@ tornare al fastboot.
    recovery. **Schermata di blocco raggiunta.**
 7. ✅ Touch GT9886 (patch 0082).
 8. ✅ Schermo 2340: touch allineato e gesto Home (patch 0083).
-9. ⬜ Wi-Fi e GPU: piano in [DAVINCI_DRIVERS.md](DAVINCI_DRIVERS.md).
+9. ✅ Wi-Fi (radio in userland, `wland`; wifid in Impostazioni; DHCP).
+10. ✅ GPU Adreno 618 (GMU legacy, patch 0203–0206), Turnip (Vulkan 1.3),
+    interfaccia via Metal. Diario in [DAVINCI_DRIVERS.md](DAVINCI_DRIVERS.md).
+11. ⬜ Fluidità, sfondo, Safari, riconnessione Wi-Fi automatica (batch 1).
+12. ⬜ Audio, Bluetooth, fotocamera: driver nuovi, non ancora iniziati.
 
 ## Handoff (per chi riprende il lavoro)
 
@@ -287,6 +293,17 @@ tornare al fastboot.
   shim con `BOARD=davinci bash shim/build.sh`.
 - Remote: `origin` = dipa-studio/ios-sweet, `fork` = Nowey21/ios-sweet (gh
   autenticato come Nowey21).
+- Il kernel con le patch applicate (per scrivere nuove patch) è in WSL:
+  `/root/xnu-work` (git, un commit per patch); script generatori in
+  `research/davinci-flame/*.py`.
+- Sul telefono non c'è una shell: file con `tools/davinci-files.py` (TCP
+  2223), comandi con `tools/davinci-cmd.py` (`sync`, `reboot`), programmi
+  come job launchd con `tools/davinci-launchd-job.py` (da Git Bash sempre con
+  `MSYS_NO_PATHCONV=1`). Log completo del kernel: `/dev/pmem` al ring della
+  console (indirizzo dalla tabella dei simboli, vedi DAVINCI_DRIVERS.md).
+- Il riavvio da remoto (`davinci-cmd.py reboot`) a volte lascia il fastboot
+  in "no link": serve Power+Vol- dell'utente. Da fastbootd (`18D1:D00D`)
+  `fastboot boot` non va: prima `fastboot reboot bootloader`.
 
 ## Diario
 
