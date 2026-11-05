@@ -12,15 +12,27 @@ index d9d7860..2edb7be 100644
  
  #define A6_GPU_ID		640
 diff --git a/bsd/dev/sweet_cpufreq.c b/bsd/dev/sweet_cpufreq.c
-index 82097a3..1aca9a3 100644
+index 82097a3..6b0291c 100644
 --- a/bsd/dev/sweet_cpufreq.c
 +++ b/bsd/dev/sweet_cpufreq.c
-@@ -43,7 +43,7 @@ osm_rd(vm_offset_t base, uint32_t off)
+@@ -27,9 +27,8 @@ static const struct {
+ 	const char *name;
+ 	uint32_t pa;
+ } osm_clusters[] = {
+-	{"pwrcl (A55 x4)", 0x18323000u},
+-	{"perfcl (A76 x3)", 0x18325800u},
+-	{"perfpcl (A76 prime)", 0x18327800u},
++	{"pwrcl (A55 x6)", 0x18323000u},	/* davinci: 2 clusters, no prime block */
++	{"perfcl (A76 x2)", 0x18325800u},
+ };
+ 
+ static uint32_t
+@@ -43,7 +42,7 @@ osm_rd(vm_offset_t base, uint32_t off)
  void
  sweet_cpufreq_init(void)
  {
 -	unsigned want = 1;
-+	unsigned want = 0;	/* davinci: SM8150 OSM addresses (flamecpufreq=1 forces) */
++	unsigned want = 0;	/* davinci: tables are read, kept unless flamecpufreq=N */
  	(void)PE_parse_boot_argn("flamecpufreq", &want, sizeof(want));
  	for (unsigned c = 0; c < sizeof(osm_clusters) / sizeof(osm_clusters[0]); ++c) {
  		vm_offset_t base = ml_io_map(osm_clusters[c].pa, 0x1000);

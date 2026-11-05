@@ -321,3 +321,15 @@ di accendere GPU e Wi-Fi.
 - Correzione in `0200-davinci-board`: tabella dei clock USB di sweet
   (`cfg-noc-axi` 0x0502c, `aggre-axi` 0x8201c, `ahb2phy` 0x6a004, `clkref`
   0x8c010). Patch 0200–0202 rigenerate (LF).
+- **Boot 12** (`shim-boot-0202b.img`, clock USB corretti): ancora niente USB.
+  Foto: stesso schermo di boot 11. **Log da recovery** (`logs/boot12.txt`,
+  121 righe): il kernel si ferma a 7,76 s **subito dopo** `SWEET CPUFREQ:
+  perfcl ... index 0 kept`; poi solo i campionamenti `SMP --- sample N` (il
+  timer gira), nessun `exec`, nessuna riga di `SWEET PMEM`, tasti, touch o
+  USB. Ordine in `sweet_ufs.c`: log, sampler, **cpufreq**, pmem, wlan, gpu,
+  keys, touch, fts, usb. Il cpufreq di flame legge sempre **tre** blocchi OSM
+  (anche senza cambiare nulla); il terzo, `0x18327800` (core prime di
+  SM8150), su SM7150 non esiste e la lettura blocca il bus. Era quindi questo
+  anche il blocco di boot 11, non solo i clock USB.
+- Correzione in `0200-davinci-board`: solo i due cluster di davinci (A55×6 a
+  0x18323000, A76×2 a 0x18325800). Patch 0200–0202 rigenerate.
