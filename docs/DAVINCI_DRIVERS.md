@@ -127,3 +127,29 @@ le rail e lo stato del chip.
   `vhci_hcd: urb->status -104` (URB bulk annullati dopo il timeout). Il
   controllo (EP0) funziona, i trasferimenti bulk no. Da capire dal log del
   telefono se il lato iOS arma gli endpoint ("ECM endpoints configured").
+- **Log di boot 9** (`logs/boot9.txt`, da recovery): lato telefono tutto
+  regolare fino alla configurazione: enumerazione, `SET_CONFIGURATION 1` →
+  "ECM endpoints configured" (DEPCFG/XFERRSC senza errori, DALEPENA con
+  EP 2/3/5), `SET_INTERFACE 1 alt 0` e `alt 1`, `SET_ETHERNET_PACKET_FILTER`,
+  notifica NETWORK_CONNECTION. Poi **nessun evento sugli endpoint bulk**: né
+  XferComplete né XferNotReady su EP 2/3. Il frame in uscita del telefono
+  (`tx 1`) resta pendente, l'host annulla i suoi URB e alla fine resetta il
+  bus. Il controllo EP0 invece funziona per tutto il tempo. Stesso codice che
+  su sweet funziona con un PC Linux nativo: il sospetto è la catena
+  Windows/usbipd con una funzione CDC-ECM.
+- Decisione: invece di indagare usbipd, rendere il telefono **CDC-NCM**, che
+  Windows 10 (2004+) e 11 gestiscono nativamente (`UsbNcm.sys`). Così il PC
+  Windows parla direttamente con il telefono, senza usbipd e WSL.
+- Patch `0084-sweet-usb-ncm.patch` (boot-arg **`sweetusbncm=1`**, senza il
+  boot-arg nulla cambia):
+  - descrittori NCM: sottoclasse 0x0D, descrittore funzionale NCM 1.0,
+    protocollo dati 0x01 (NTB); PID **1209:0002** e prodotto "Sweet iOS (USB
+    NCM)", perché Windows non riusi la cache dei descrittori ECM;
+  - richieste di classe: `GET_NTB_PARAMETERS` (solo NTB16, 2 KiB in entrambe
+    le direzioni, allineamento 4, **un datagramma per NTB** dall'host),
+    `GET_NTB_INPUT_SIZE`, `GET_NTB_FORMAT`; le richieste OUT
+    (`SET_NTB_INPUT_SIZE`, filtri, reset) accettate;
+  - ricezione: parsing di NTH16 + catena di NDP16, ogni datagramma passato
+    allo stack come prima;
+  - trasmissione: un frame per NTB dietro un'intestazione fissa di 28 byte
+    (NTH16 + NDP16), con un byte di riempimento se il blocco è multiplo di 512.
