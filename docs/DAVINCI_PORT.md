@@ -600,3 +600,6 @@ Controllo dei valori fissi di sweet nell'albero patchato:
 - `sweet_early.c` / `start.s` (console di primissimo avvio, solo debug) restano
   a 2400 righe: su davinci le ultime 28 righe di quella console e la sua
   striscia di stato in fondo non si vedono. Puramente estetico, non toccato.
+- CI run `42027916731` (0082 + 0083) riuscita → `xnu/out-0083/`, immagine
+  `shim/out/shim-boot-0083.img` (stessa cmdline di 0082). Boot 8 in attesa
+  che l'utente rientri nel fastboot.
