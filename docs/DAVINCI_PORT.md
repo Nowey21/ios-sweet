@@ -2,9 +2,10 @@
 
 > **Stato (2026-11-05, ~13:35): iOS 16.7.16 gira sul Mi 9T con schermata
 > di blocco, tasti fisici e touch funzionanti.** Kernel XNU di sweet + patch
-> `0082-davinci-gt9886-touch` (boot-arg `sweetboard=davinci`), shim con
-> `BOARD=davinci`, root iOS su `userdata`. Avvio: Power + Volume giù per il
-> fastboot, poi `fastboot boot shim/out/shim-boot-0082.img`.
+> `0082-davinci-gt9886-touch` + `0083-davinci-touch-panel-size` (boot-arg
+> `sweetboard=davinci`), shim con `BOARD=davinci`, root iOS su `userdata`.
+> Touch preciso e gesto Home funzionanti. Avvio: Power + Volume giù per il
+> fastboot, poi `fastboot boot shim/out/shim-boot-0083.img`.
 
 Documento di lavoro del port. Ogni passo, ogni boot e ogni decisione vengono
 annotati qui (sezione "Diario"). Si distingue sempre tra **osservato** (visto sul
@@ -269,9 +270,8 @@ tornare al fastboot.
 6. ✅ Flash su `userdata` (confermato dall'utente), primo boot, log da
    recovery. **Schermata di blocco raggiunta.**
 7. ✅ Touch GT9886 (patch 0082).
-8. ⬜ Ritocchi: schermo 2340 (allineamento della tela, dot pitch 403 ppi,
-   console di debug), batteria reale, poi le parti che mancano anche a sweet
-   (Wi-Fi, audio, GPU…).
+8. ✅ Schermo 2340: touch allineato e gesto Home (patch 0083).
+9. ⬜ Wi-Fi e GPU: piano in [DAVINCI_DRIVERS.md](DAVINCI_DRIVERS.md).
 
 ## Handoff (per chi riprende il lavoro)
 
@@ -603,3 +603,5 @@ Controllo dei valori fissi di sweet nell'albero patchato:
 - CI run `42027916731` (0082 + 0083) riuscita → `xnu/out-0083/`, immagine
   `shim/out/shim-boot-0083.img` (stessa cmdline di 0082). Boot 8 in attesa
   che l'utente rientri nel fastboot.
+- **Boot 8** (0083): l'utente conferma **tocchi precisi e gesto Home
+  funzionante** (scorrendo dal bordo in basso si torna alla Home).
