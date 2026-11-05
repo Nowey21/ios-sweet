@@ -577,3 +577,26 @@ Patch `xnu/patches/0082-davinci-gt9886-touch.patch` (generata con
   arriva alla schermata di blocco senza la lunga migrazione. GT9886 riconosciuto
   e letto con il protocollo Normandy, alimentato da L6C via RPMh più AVDD sul
   GPIO 5: la patch 0082 ha funzionato al primo tentativo.
+
+### Schermo 2340: patch 0083 (2026-11-05)
+
+Controllo dei valori fissi di sweet nell'albero patchato:
+- `SweetFramebuffer.cpp` (AppleCLCD) legge già larghezza, altezza e stride dal
+  framebuffer di avvio (`PE_current_console`, cioè dai boot-args video dello
+  shim) e centra la tela 1125×2436: su davinci offset Y = (2436 − 2340) / 2 =
+  48. Il dot pitch dichiarato è 458 ppi, quello dell'iPhone X presentato:
+  giusto anche qui. **Nessuna modifica.**
+- `SweetHID.cpp` (touch) aveva invece 1080×2400 fissi:
+  - offset Y del touch 18 invece di 48 → **tocchi spostati di 30 pixel**
+    rispetto all'immagine;
+  - bordo inferiore riconosciuto solo per y > 2351, ma il GT9886 arriva al
+    massimo a 2339 → **il gesto Home (scorri dal bordo in basso) non può
+    funzionare**;
+  - altezza fisica dichiarata 151 mm (sweet) invece di 147 mm.
+  Patch `0083-davinci-touch-panel-size.patch`: dimensioni del pannello da
+  `PE_current_console` come AppleCLCD, stessa centratura, limiti e bordi su
+  quelle dimensioni, altezza in mm = 68 × H / W. Su sweet i valori restano
+  identici (1080×2400 → 18, 2351, 151).
+- `sweet_early.c` / `start.s` (console di primissimo avvio, solo debug) restano
+  a 2400 righe: su davinci le ultime 28 righe di quella console e la sua
+  striscia di stato in fondo non si vedono. Puramente estetico, non toccato.
