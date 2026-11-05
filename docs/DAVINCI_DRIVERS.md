@@ -642,3 +642,53 @@ Ordine di prova: `0203` (GPU spenta, controllo) → `0203g` (GPU + test) →
   `smmu_bank` controlla che l'SMR si rilegga uguale, altrimenti fallisce;
   se l'HFI fallisce il driver **non tocca la GPU** e stampa FSR/FAR/FSYNR0
   del context bank della GMU (niente più blocco del telefono).
+
+### Boot 19 (`0205g`): Wi-Fi funzionante, patch 0206
+
+- **Wi-Fi con DHCP: funziona** (confermato dall'utente). configd tiene il set
+  scritto al boot 16 (1 servizio, `CurrentSet` presente); dopo il join da
+  Impostazioni: `configd en0 add address 192.168.1.53`, gateway
+  192.168.1.1, rotte della LAN. Il problema del join "che gira" era quindi
+  la mancanza del servizio di rete in configd, non la radio.
+- GPU: `smr0 80000005` (accettato), il driver si ferma pulito (`bring-up
+  FAILED in 4805 ms`, il telefono resta usabile). FSR 0x400 (solo il campo
+  formato) e FAR 0: **nessun fault SMMU**. Letti da `/dev/pmem` il log della
+  GMU, le code HFI e il buffer di debug (pool 0x104800000 + 0x91000): tabella
+  e code corrette, ma la GMU **non ha mai letto** la coda comandi (read 0,
+  write 0xd2), log e debug vuoti. Va in CM3_FAULT al primo doorbell.
+- Linux, prima del primo messaggio, esegue `a6xx_gmu_hfi_start`
+  (`HFI_CTRL_INIT` = 1, attesa del bit 0 di `HFI_CTRL_STATUS`); il driver di
+  flame non lo faceva mai. **Patch 0206** (`research/davinci-flame/
+  hfi-0206.py`): aggiunge quel passo (0x5186 + 0x1a800 = 0x1f986), con log
+  dello stato e di GMU2HOST prima e dopo.
+
+### Boot 20 (`0206g`): **LA GPU ADRENO 618 FUNZIONA**
+
+Kernel 0206 (xnu run `42083706807`), `shim/out/shim-boot-0206g.img`
+(sha256 `69fa7950…`, `sweetgpu=1`). Log da `/dev/pmem`, `logs/boot20-ring.txt`:
+
+```
+gmu: 1 firmware blocks loaded
+gmu: init result babeface BOOTED, hfi_ctrl 0
+gmu: gfx rail oob acked, sptprac on (28)
+gmu: hfi queues started (status 1; g2h info before 0, after 0)
+hfi v1: init, version, perf/bw tables -> 0; dcvs 430 MHz oob acked return 0
+oob gpu_set acked, gx gdsc f8222000
+smmu: smr1 80000000 -> cb1 ...
+ring me_init: rptr 9 wptr 9 status 1 int 0 hwfault 0 cp_status1 1000000 idle
+zap: auth and reset rc 0 r1 0
+ring secure mode off: rptr b wptr b ... idle
+bring-up done, GPU ready in 311 ms
+surface ... -> slot 0 / slot 1; panel stride 4352
+5s: 49 submits (0 missed), GPU busy 123 ms (1%), longest 3555 us, mean 2516 us
+```
+
+GMU (firmware legacy, HFI v1), CP, zap shader in TrustZone e blit 2D verso il
+pannello funzionano: backboardd presenta i frame attraverso la GPU (submit
+da 2,5–3,5 ms, nessuno perso). Mancava solo `HFI_CTRL_INIT` (0206).
+
+- I job di test non erano mai partiti: li avevo aggiunti da Git Bash senza
+  `MSYS_NO_PATHCONV=1` e il programma era diventato `C:/Program Files/Git/
+  var/local/bin/v2test`. Rifatti (`v2test` all'avvio, `vktest` ogni 120 s);
+  `davinci-launchd-job.py` ora rifiuta un PROGRAM che non inizia con `/`.
+  Girano al prossimo avvio.

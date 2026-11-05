@@ -34,6 +34,9 @@ def main(argv):
     if len(argv) < 2 or argv[0] not in ('add', 'remove') or (argv[0] == 'add' and len(argv) < 3):
         raise SystemExit(__doc__)
     what, name = argv[0], argv[1]
+    # Git Bash rewrites /var/... into C:/Program Files/Git/var/... without MSYS_NO_PATHCONV=1
+    if what == 'add' and not argv[2].startswith('/'):
+        raise SystemExit(f'PROGRAM must be a phone path starting with /, got {argv[2]!r} (MSYS_NO_PATHCONV=1?)')
     label = 'org.davinci.' + name
     key = f'/System/Library/LaunchDaemons/{label}.plist'
     os.makedirs(WORK, exist_ok=True)
