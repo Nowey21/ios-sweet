@@ -745,16 +745,17 @@ static int auto_up(void)
 	/*
 	 * davinci: the kernel's touch driver votes its rail (L6C) over RPMh 45 s
 	 * after boot, and the kernel refuses every RPMh vote after one that timed
-	 * out. Start after it, so a failing WLAN vote cannot take the touch with it.
+	 * out. Start after it (boot 24: the vote at 53 s), so a failing WLAN vote
+	 * cannot take the touch with it.
 	 */
 	for (;;) {
 		struct timeval tv;
 		gettimeofday(&tv, NULL);
 		long up_s = (long)(tv.tv_sec - bt.tv_sec);
-		if (up_s >= 90)
+		if (up_s >= 60)
 			break;
-		printf("wland auto: %ld s since boot, waiting for 90 (touch rail first)\n", up_s);
-		sleep((unsigned)(90 - up_s));
+		printf("wland auto: %ld s since boot, waiting for 60 (touch rail first)\n", up_s);
+		sleep((unsigned)(60 - up_s));
 	}
 	return up(0);
 }
