@@ -440,3 +440,7 @@ tornare al fastboot.
 - Preparata `shim/out/shim-boot-xnu-rw-console.img`: stessa cmdline di
   `-rw` ma senza `sweetfb_noconsole=1`, così il testo del kernel e di launchd
   compare sopra il logo e si vede dove si ferma.
+- Boot 4: dopo ~10 minuti ancora sul logo Apple (osservato dall'utente).
+  Nessun dispositivo USB visibile. Avviato in attesa
+  `fastboot boot shim/out/shim-boot-xnu-rw-console.img` (parte quando
+  l'utente rientra nel fastboot con Power + Volume giù) → boot 5.
