@@ -1,9 +1,10 @@
 # Port di ios-sweet su Mi 9T / Redmi K20 (davinci)
 
-> **Stato (2026-11-05, ~13:00): iOS 16.7.16 arriva alla schermata di blocco
-> sul Mi 9T, e i tasti fisici funzionano.** Kernel XNU di sweet senza
-> modifiche, shim con `BOARD=davinci`, root iOS su `userdata`. Il touch non
-> funziona ancora (rail e protocollo diversi, vedi "Cosa manca").
+> **Stato (2026-11-05, ~13:35): iOS 16.7.16 gira sul Mi 9T con schermata
+> di blocco, tasti fisici e touch funzionanti.** Kernel XNU di sweet + patch
+> `0082-davinci-gt9886-touch` (boot-arg `sweetboard=davinci`), shim con
+> `BOARD=davinci`, root iOS su `userdata`. Avvio: Power + Volume giù per il
+> fastboot, poi `fastboot boot shim/out/shim-boot-0082.img`.
 
 Documento di lavoro del port. Ogni passo, ogni boot e ogni decisione vengono
 annotati qui (sezione "Diario"). Si distingue sempre tra **osservato** (visto sul
@@ -267,8 +268,10 @@ tornare al fastboot.
 5. ✅ ADT (`tools/mkadt.py --highmem`) di sweet: va bene così.
 6. ✅ Flash su `userdata` (confermato dall'utente), primo boot, log da
    recovery. **Schermata di blocco raggiunta.**
-7. ⬜ Patch del kernel per davinci: **touch GT9886** (priorità), poi schermo
-   2340 (allineamento, dot pitch, console).
+7. ✅ Touch GT9886 (patch 0082).
+8. ⬜ Ritocchi: schermo 2340 (allineamento della tela, dot pitch 403 ppi,
+   console di debug), batteria reale, poi le parti che mancano anche a sweet
+   (Wi-Fi, audio, GPU…).
 
 ## Handoff (per chi riprende il lavoro)
 
@@ -569,4 +572,8 @@ Patch `xnu/patches/0082-davinci-gt9886-touch.patch` (generata con
   `xnu/out-0082/`. Immagine `shim/out/shim-boot-0082.img` = cmdline di `-rw`
   + `sweetboard=davinci`.
 - **Boot 7**: `fastboot boot shim/out/shim-boot-0082.img` → `Booting OKAY`.
-  Il touch parte 45 s dopo l'avvio del kernel. In attesa del risultato.
+  Il touch parte 45 s dopo l'avvio del kernel.
+- **🎉 Boot 7: il touch funziona** (riferito dall'utente). Il secondo avvio
+  arriva alla schermata di blocco senza la lunga migrazione. GT9886 riconosciuto
+  e letto con il protocollo Normandy, alimentato da L6C via RPMh più AVDD sul
+  GPIO 5: la patch 0082 ha funzionato al primo tentativo.
