@@ -565,3 +565,8 @@ Patch `xnu/patches/0082-davinci-gt9886-touch.patch` (generata con
 - Le coordinate del pannello passano invariate: la patch 0061 mostra le righe
   18…2357 della tela 1125×2436 e somma lo stesso offset al touch, quindi la
   riga y del pannello corrisponde a quella disegnata.
+- CI run `42025934193` (kernel con 0082): riuscita in 7 min 17 s →
+  `xnu/out-0082/`. Immagine `shim/out/shim-boot-0082.img` = cmdline di `-rw`
+  + `sweetboard=davinci`.
+- **Boot 7**: `fastboot boot shim/out/shim-boot-0082.img` → `Booting OKAY`.
+  Il touch parte 45 s dopo l'avvio del kernel. In attesa del risultato.
