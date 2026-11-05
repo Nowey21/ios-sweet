@@ -539,3 +539,37 @@ sono i livelli ARC (presi dall'A618 di SC7180) e lo stato del blit.
   3. dopo ~6 minuti leggere `/private/var/local/v2test.out` e
      `vktest.out` con `tools/davinci-files.py get`.
   Se il boot si blocca: Power+Vol- e `fastboot boot` di `0202c`.
+
+### Metal su Turnip: SweetMetal2.bundle (2026-11-05, utente via)
+
+- `phone/metal2/` copiato da ios-flame (MIT; il frontend Metal e il bridge
+  sono di UniXNU/NativeMetal, MIT) + `phone/metal2/build-ci.sh`: metal2vulkan
+  **720ef1ce** (scaricato al build, non copiato) + le 8 patch di
+  `bridge/patches`, staticlib Rust (toolchain 1.98.0, `aarch64-apple-ios`),
+  poi bundle e `m2vtest` con xcrun clang, firmati ad hoc. Passo aggiunto a
+  `gpu-userland.yml`.
+- I push di quel pomeriggio non avviavano i workflow (GitHub: "fatal error in
+  commit_refs_rules", dispatch HTTP 500): run avviato a mano,
+  **`42061876301`, riuscito in 8 min 22 s**. `SweetMetal2` 21 984 144 byte,
+  Turnip nel bundle 17 193 552 (strippato), `m2vtest` 17 897 392. Gli unici
+  "weak external" sono `__isOSVersionAtLeast`/`__isPlatformVersionAtLeast`
+  (definiti nel binario stesso, compiler-rt) e un template libc++: nessun
+  simbolo mancante su iOS 16. Artifact in `research/metal2-out/` (locale; il
+  dSYM da 190 MB non va sul telefono).
+- **Installato sul telefono** (verificato con SHA-256, poi `sync`):
+  `/System/Library/Extensions/SweetMetal2.bundle/{SweetMetal2,
+  libvulkan_freedreno.dylib,Info.plist,_CodeSignature/CodeResources}`,
+  `/private/var/local/bin/m2vtest`, `/private/var/local/m2v-cache/` (777),
+  `/private/var/local/mtl2.log` (666), `/private/var/local/mtl2-clients` =
+  `SpringBoard` (su flame senza SpringBoard lo sblocco non funziona).
+  Il kernel lo usa **solo** con `sweetmtl=2` (patch flame 0116): negli altri
+  avvii non cambia nulla.
+- `shim/out/shim-boot-0203m.img` (sha256 `731dd64e…`): `sweetgpu=1
+  sweetmtl=2`, backboardd compone l'interfaccia con Metal → metal2vulkan →
+  Turnip → A618. **Da provare solo dopo che `0203g` mostra GPU, v2test e
+  vktest funzionanti.** I primi avvii sono lenti: ~270 pipeline compilate sul
+  telefono (cache in `/var/local/m2v-cache/<processo>`). Log:
+  `/var/local/mtl2.log` e righe `MTL2[...]` nel live log.
+
+Ordine di prova: `0203` (GPU spenta, controllo) → `0203g` (GPU + test) →
+`0203m` (interfaccia su GPU). Sempre `0202c` come ritorno sicuro.
