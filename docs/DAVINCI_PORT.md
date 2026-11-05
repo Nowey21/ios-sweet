@@ -434,3 +434,9 @@ tornare al fastboot.
   → `Booting OKAY`. Primo avvio di iOS dalla root su `userdata`. In attesa di
   foto dello schermo (atteso: 4-5 minuti sul logo Apple, poi la schermata di
   blocco).
+- Boot 4: dopo l'avvio il telefono non compare sull'USB (né fastboot né adb).
+  L'utente riporta lo schermo **fermo sul logo Apple** (primo avvio: su sweet
+  normale per 4-5 minuti). Si aspetta fino a ~10 minuti.
+- Preparata `shim/out/shim-boot-xnu-rw-console.img`: stessa cmdline di
+  `-rw` ma senza `sweetfb_noconsole=1`, così il testo del kernel e di launchd
+  compare sopra il logo e si vede dove si ferma.
