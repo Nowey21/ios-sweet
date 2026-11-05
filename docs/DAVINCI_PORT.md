@@ -444,3 +444,6 @@ tornare al fastboot.
   Nessun dispositivo USB visibile. Avviato in attesa
   `fastboot boot shim/out/shim-boot-xnu-rw-console.img` (parte quando
   l'utente rientra nel fastboot con Power + Volume giù) → boot 5.
+- **Boot 5**: il telefono è rientrato nel fastboot, `fastboot boot
+  shim/out/shim-boot-xnu-rw-console.img` → `Booting OKAY`. In attesa di foto
+  del testo sullo schermo.
