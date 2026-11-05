@@ -345,3 +345,25 @@ di accendere GPU e Wi-Fi.
   - `bluetooth/`: `crbtfw11/20/21.tlv`, `crnv11/20/21.bin`.
   Sono gli stessi file che ios-flame mette in `/var/local/fw/modem` sul
   telefono.
+- **Boot 13** (`shim-boot-0202c.img`, cluster OSM corretti): **funziona con
+  la serie completa.** Dopo il fastboot bloccato ("no link") il telefono era
+  finito in fastbootd (`USB\VID_18D1&PID_D00D`, `fastboot boot` → "unknown
+  command"): `fastboot reboot bootloader` e di nuovo `fastboot boot`. La
+  scheda NCM compare dopo 5 s, ping 1–2 ms, **file server flame aperto (TCP
+  2223)**, log dal vivo: backboardd presenta frame (~4,4 fps), tocchi
+  registrati (anche `edge` dal bordo in basso).
+- File server: funziona solo con i percorsi reali (`/private/var/...`, non
+  segue i link come `/var`). Da Git Bash serve `MSYS_NO_PATHCONV=1`,
+  altrimenti `/private/...` diventa un percorso Windows e il telefono
+  risponde `ERR 2`. Nuovi `tools/davinci-files.py` (= flame-files.py verso
+  192.168.7.2) e `tools/davinci-cmd.py` (comandi UDP 5141, p.es. `sync`).
+- `tools/davinci-wifi-install.sh`: caricati in 84 s `/private/var/local/bin/
+  wland`, 69 file in `/private/var/local/fw/modem`, le 4 immagini rmtfs
+  (`modemst1/2`, `fsg`, `fsc`) in `/private/var/local/fw/rmtfs`; verificati
+  scaricandoli di nuovo (`modem.mdt`, `wland`, `fsc.img` identici).
+- `tools/davinci-wland-job.py add`: job launchd `org.davinci.wland`
+  (`wland auto`, root, log `/var/local/wland.log` + `wland.out`) aggiunto a
+  `/System/Library/xpc/launchd.plist`; l'originale è sul telefono come
+  `launchd.plist.orig` e in `research/launchd/`. `remove` lo toglie.
+  Senza `/var/local/wlan.conf` wland non si collega a nessuna rete: avvia il
+  modem, WLFW e fa le scansioni passive. Poi `sync` e riavvio (boot 14).
