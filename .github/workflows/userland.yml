@@ -1,0 +1,41 @@
+name: userland
+
+# iOS 16 arm64 programs that run on the phone (phone/*), built with Xcode's
+# iOS SDK on a macOS runner and signed ad hoc. Artifact: phone-userland.
+on:
+  workflow_dispatch:
+  push:
+    branches: [davinci]
+    paths:
+      - "phone/**"
+      - ".github/workflows/userland.yml"
+
+jobs:
+  build:
+    runs-on: macos-14
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Toolchain
+        run: |
+          xcodebuild -version
+          xcrun --sdk iphoneos --show-sdk-path
+          xcrun --sdk iphoneos clang --version
+
+      - name: wland (Wi-Fi)
+        run: sh phone/wifi/build.sh
+
+      - name: Check binaries
+        run: |
+          file phone/wifi/out/wland
+          # iOS 16 lacks newer libc symbols; a weak import would jump to 0 (ios-flame HANDOFF.md)
+          if nm -m phone/wifi/out/wland | grep "weak external"; then
+            echo "::warning::weak imports above may be missing on iOS 16"
+          fi
+          codesign -dv phone/wifi/out/wland 2>&1 | head -n 5
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: phone-userland
+          path: phone/wifi/out/

@@ -281,3 +281,19 @@ di accendere GPU e Wi-Fi.
   patch (0082–0124, 0200–0202) si applicano **con `git apply`** in ordine.
   Il workflow `xnu.yml` ora salva l'output di `build.sh` e **fallisce** se una
   patch `NNNN-sweet|flame|davinci-*` viene saltata.
+
+### Userland: wland e workflow macOS (2026-11-05)
+
+- `phone/wifi/`: `wland` di ios-flame (MIT; `radio.c` da ios-topaz) copiato al
+  commit `745c434`, con i valori davinci: `MPSS_PA/SIZE` 0x8b000000/0x8400000,
+  `MSA_PA` 0x97d00000, board data `bdwlan.bin`/`bdwlan.b0c` (nomi da
+  confermare quando avremo la partizione `modem`). Dettagli in
+  `phone/wifi/README.md`.
+- Il board data **non è su vendor** (`/firmware/wlan/qca_cld` ha solo
+  `WCNSS_qcom_cfg.ini` e `wlan_mac.bin`): sul WCN3990 sta nella partizione
+  `modem` (FAT, `sde51`) insieme a `wlanmdsp.mbn` e `modem.mdt/.bNN`. Va
+  copiata dal telefono (in sola lettura, da recovery).
+- `.github/workflows/userland.yml`: compila `phone/wifi` con
+  `xcrun --sdk iphoneos clang -arch arm64 -miphoneos-version-min=16.0`,
+  firma ad hoc, segnala gli import deboli (simboli che iOS 16 potrebbe non
+  avere), carica l'artifact `phone-userland`.
