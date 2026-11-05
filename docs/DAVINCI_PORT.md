@@ -488,3 +488,7 @@ tornare al fastboot.
 - Ipotesi: è ancora la migrazione del primo avvio (silenziosa nel log) e
   serve solo più tempo. Prossima prova: avvio normale (`-rw`, senza console)
   lasciato acceso 20-30 minuti in carica.
+- **Boot 6** (12:31): `adb reboot bootloader` dalla recovery, poi
+  `fastboot boot shim/out/shim-boot-xnu-rw.img` → `Booting OKAY`. Avvio
+  normale (console nascosta), da lasciare acceso ~30 minuti in carica per
+  far finire la migrazione dei dati.
