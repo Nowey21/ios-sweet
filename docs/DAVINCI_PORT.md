@@ -313,3 +313,32 @@ tornare al fastboot.
      sorgenti del kernel WSL di Microsoft (stessa versione) e caricarlo.
   La compilazione di codice esterno è stata bloccata dal controllo dei
   permessi: in attesa del consenso dell'utente.
+- `apfs-fuse` (sgan81, commit 66b86bd) compilato in `/root/apfs-fuse` e
+  installato in `/usr/local/bin`. Due correzioni per gli strumenti nuovi:
+  `-DCMAKE_POLICY_VERSION_MINIMUM=3.5` (CMake 4) e `#include <cstdint>` in
+  `ApfsLib/PList.h` (gcc 15).
+- Modulo `hfsplus`: sorgenti `microsoft/WSL2-Linux-Kernel`, tag
+  `linux-msft-wsl-6.18.54.1`, `.config` da `/proc/config.gz` con
+  `CONFIG_HFSPLUS_FS=m`. Il build del solo modulo fallisce in modpost
+  (`CONFIG_MODVERSIONS=y`, manca `Module.symvers`): in corso il build completo
+  del kernel per generarlo.
+- IPSW scaricato e verificato (SHA-1 OK). Dal BuildManifest (D22AP, Erase):
+  OS = `087-86698-044.dmg` (UDIF con blocchi LZFSE, 4,7 GB),
+  SystemOS = `087-86593-047.dmg`, AppOS = `087-86715-047.dmg`,
+  DeviceTree = `Firmware/all_flash/DeviceTree.d22ap.im4p`. Estratti in
+  `/root/ios` (WSL).
+- Device tree D22AP: IM4P `dtre` con payload LZFSE (`bvx2`). Estratto con un
+  parser DER in Python e decompresso con `lzfse -decode` (pacchetto Ubuntu)
+  al posto dello strumento `ipsw` → `research/ipsw-x/d22ap.adt`, 186 084 byte,
+  18 nodi alla radice (`chosen`, `cpus`, `arm-io`, `product`…).
+- **Kernel**: run `42010014603` riuscita in 7 min 42 s.
+  `xnu/out/kernel.development.sweet`, SHA-256 `3ab7d0b8…02d8`.
+- Immagini di avvio (`BOARD=davinci`, ADT `--highmem` di sweet):
+  - `shim/out/shim-boot.img`: cmdline del README (root in scrittura).
+  - `shim/out/shim-boot-xnu-ro.img`: **test sicuro** senza `ufsrw=1`
+    `rootrw=1` e con `sweetlog=0`. Il driver UFS resta in sola lettura (patch
+    0030: `su.writable = (rw != 0)`) e il log persistente non parte (patch
+    0047 richiede `su.writable`). `userdata` contiene ancora l'f2fs di
+    Android: il montaggio come HFS+ deve fallire, quindi ci si aspetta che il
+    kernel si fermi (panic "root device" o simile) senza scrivere nulla.
+    Senza `sweetfb_noconsole=1`, il testo del kernel compare sullo schermo.
