@@ -280,15 +280,27 @@ static int fw_check(void)
 	phnum = 0;
 	memcpy(&phnum, mdt + 0x2c, 2);
 	ph = (struct phdr *)(mdt + phoff);
-	uint64_t total = 0;
+	uint64_t total = 0, lowest = ~0ull;
+	int relocatable = 0;
 	for (uint32_t i = 0; i < phnum; i++) {
 		if (((ph[i].flags >> 24) & 7) == 2)
 			hash_seg = (int)i;
 		if (ph[i].type != 1 || !ph[i].memsz || (int)i == hash_seg)
 			continue;
-		if (ph[i].paddr < ADSP_PA || ph[i].paddr + ph[i].memsz > ADSP_PA + ADSP_SIZE) {
-			fprintf(stderr, "fw: segment %u at %x+%x outside %llx+%llx\n", i, ph[i].paddr, ph[i].memsz,
-			    ADSP_PA, ADSP_SIZE);
+		if (ph[i].flags & (1u << 27))
+			relocatable = 1;
+		if (ph[i].paddr < lowest)
+			lowest = ph[i].paddr;
+	}
+	reloc = relocatable ? (int64_t)ADSP_PA - (int64_t)lowest : 0;
+	printf("fw: %srelocatable, linked at %llx, loaded at %llx\n", relocatable ? "" : "not ",
+	    (unsigned long long)lowest, (unsigned long long)(lowest + reloc));
+	for (uint32_t i = 0; i < phnum; i++) {
+		if (ph[i].type != 1 || !ph[i].memsz || (int)i == hash_seg)
+			continue;
+		if (seg_pa(i) < ADSP_PA || seg_pa(i) + ph[i].memsz > ADSP_PA + ADSP_SIZE) {
+			fprintf(stderr, "fw: segment %u at %llx+%x outside %llx+%llx\n", i, (unsigned long long)seg_pa(i),
+			    ph[i].memsz, ADSP_PA, ADSP_SIZE);
 			return -1;
 		}
 		char path[128];
