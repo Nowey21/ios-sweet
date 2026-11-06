@@ -32,6 +32,7 @@
 #include "smem.h"
 #include "link.h"
 #include "pdmapper.h"
+#include "qmi.h"
 
 #define ADSP_PA		0x95700000ull
 #define ADSP_SIZE	0x02600000ull
@@ -397,6 +398,37 @@ static int boot_adsp(void)
 
 /* ---- QRTR with the DSP ---- */
 
+/*
+ * The DSP's service registry (QMI service 0x42, "tms/servreg", instance 74): REGISTER_LISTENER (0x20)
+ * with enable and a protection domain's path answers that domain's state now (Linux
+ * soc/qcom/pdr_interface.c: 0x1fffffff up, 0x0fffffff down, 0x7fffffff not yet known).
+ */
+#define SERVREG_SERVICE		0x42
+#define SERVREG_REGISTER	0x20
+#define OUR_SERVREG_PORT	0x40
+static uint32_t servreg_node, servreg_port;
+static volatile int servreg_answered;
+
+static void servreg_ask(const char *path)
+{
+	struct qmi_buf q;
+	if (!servreg_port) {
+		printf("servreg: the DSP has not announced its registry\n");
+		return;
+	}
+	qmi_start(&q, QMI_REQUEST, 1, SERVREG_REGISTER);
+	qmi_tlv_u8(&q, 1, 1);
+	qmi_tlv(&q, 2, path, (uint16_t)strlen(path));
+	size_t n = qmi_finish(&q);
+	servreg_answered = 0;
+	qrtr_send(QRTR_TYPE_DATA, OUR_SERVREG_PORT, servreg_node, servreg_port, q.b, (uint32_t)n);
+	uint64_t end = link_ms() + 2000;
+	while (!servreg_answered && link_ms() < end)
+		link_poll(5);
+	if (!servreg_answered)
+		printf("servreg: no answer about %s\n", path);
+}
+
 static void net_cb(const struct qrtr_hdr *h, const uint8_t *d, uint32_t n)
 {
 	uint32_t w[5] = { 0 };
@@ -406,6 +438,19 @@ static void net_cb(const struct qrtr_hdr *h, const uint8_t *d, uint32_t n)
 			qrtr_resume_tx(h);
 		if (h->dst_port == PDMAPPER_PORT) {
 			pdmapper_handle(h, d, n);
+			return;
+		}
+		if (h->dst_port == OUR_SERVREG_PORT) {
+			struct qmi_msg m;
+			uint32_t state = 0;
+			if (qmi_parse(d, n, &m) == 0) {
+				int has = qmi_get_u32(&m, 0x10, &state) == 0;
+				printf("servreg: < msg %#x type %u: state %#x%s\n", m.id, m.type, state,
+				    !has ? " (none)" : state == 0x1fffffff ? " UP" : state == 0x0fffffff ? " DOWN" :
+				    state == 0x7fffffff ? " not known yet" : "");
+				if (m.type == QMI_RESPONSE)
+					servreg_answered = 1;
+			}
 			return;
 		}
 		printf("qrtr: < DATA %u:%x -> %u:%x, %u bytes\n", h->src_node, h->src_port, h->dst_node, h->dst_port, n);
@@ -418,6 +463,10 @@ static void net_cb(const struct qrtr_hdr *h, const uint8_t *d, uint32_t n)
 	} else if (w[0] == QRTR_TYPE_NEW_SERVER) {
 		printf("qrtr: the DSP serves service %#x version %u instance %#x at %u:%x\n", w[1], w[2] & 0xff, w[2] >> 8,
 		    w[3], w[4]);
+		if (w[1] == SERVREG_SERVICE) {
+			servreg_node = w[3];
+			servreg_port = w[4];
+		}
 	} else {
 		printf("qrtr: ctrl %u from %u:%x\n", w[0], h->src_node, h->src_port);
 	}
@@ -538,6 +587,10 @@ static int afe_status(const char *what)
 
 static int speaker_port(void)
 {
+	/* where the audio services live: is their protection domain up? */
+	servreg_ask("msm/adsp/root_pd");
+	servreg_ask("msm/adsp/audio_pd");
+	servreg_ask("msm/adsp/sensor_pd");
 	pin_func(TLMM_WEST, 49, 1, 8);	/* bit clock */
 	pin_func(TLMM_WEST, 50, 1, 8);	/* word select */
 	pin_func(TLMM_WEST, 52, 1, 8);	/* data 0 */
