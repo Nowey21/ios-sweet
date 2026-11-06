@@ -12,6 +12,7 @@
 #   expt, exq: probes of ExtensionFoundation (extension points and records)
 #   delayrun SECS PROGRAM [ARG...]: run once, SECS seconds after boot (ours, not flame's)
 #   runq     [DIR]: runs NAME.cmd files dropped in /var/local/runq (tools/davinci-run.py; ours)
+#   bright   [LEVEL]: display brightness through BackBoardServices, like the slider (ours)
 set -eu
 cd "$(dirname "$0")"
 CC="xcrun --sdk iphoneos clang -arch arm64 -miphoneos-version-min=16.0"
@@ -27,7 +28,7 @@ build() {	# NAME SOURCE [FLAGS...]
 	fi
 }
 for c in delayrun membw pstack psx runq; do build $c $c.c; done
-for m in expt exq nettest openapp oslog prefs; do build $m $m.m -fobjc-arc -framework Foundation; done
+for m in bright expt exq nettest openapp oslog prefs; do build $m $m.m -fobjc-arc -framework Foundation; done
 build imgtest imgtest.m -fobjc-arc -framework Foundation -framework ImageIO -framework CoreGraphics
 build lsreg lsreg.m -fobjc-arc -framework Foundation -framework MobileCoreServices
 build netsvc netsvc.m -fobjc-arc -framework Foundation -framework SystemConfiguration
