@@ -521,19 +521,27 @@ static void apr_cb(const uint8_t *d, uint32_t n)
 	memcpy(apr_got, d + sizeof(h), apr_got_len);
 }
 
+static int apr_ext;
+
 static int apr_cmd(uint8_t svc, uint16_t port, uint32_t opcode, const void *payload, uint32_t len, uint32_t want,
     unsigned ms)
 {
 	static uint32_t token = 1;
 	uint8_t pkt[512];
+	/* apr_ext: the DSP's own packets are version 1 with a 32-byte header (hdr_field 0x81/0x181):
+	 * the same, the 12 bytes after the classic header left zero */
+	uint32_t hl = apr_ext ? 32 : 20;
 	struct apr_hdr h = {
-		.hdr_field = APR_HDR_FIELD_CMD, .pkt_size = (uint16_t)(sizeof(h) + len), .src_svc = svc,
+		.hdr_field = apr_ext ? (uint16_t)((1u << 8) | (8u << 4) | 1u) : APR_HDR_FIELD_CMD,
+		.pkt_size = (uint16_t)(hl + len), .src_svc = svc,
 		.src_domain = APR_DOMAIN_APPS, .src_port = 0, .dest_svc = svc, .dest_domain = APR_DOMAIN_ADSP,
 		.dest_port = port, .token = ++token, .opcode = opcode,
 	};
+	memset(pkt, 0, hl);
 	memcpy(pkt, &h, sizeof(h));
 	if (len)
-		memcpy(pkt + sizeof(h), payload, len);
+		memcpy(pkt + hl, payload, len);
+	len += hl - (uint32_t)sizeof(h);
 	apr_got_opcode = 0;
 	printf("apr: > svc %u opcode %#x token %u, %u bytes:", svc, opcode, h.token, (unsigned)(sizeof(h) + len));
 	for (uint32_t i = 0; i < (sizeof(h) + len) / 4; i++) {
@@ -612,9 +620,15 @@ static int speaker_port(void)
 		.clk_attri = 1 /* couple no */, .clk_root = 0, .enable = 1,
 	};
 	if (apr_cmd(APR_SVC_AFE, 0, AFE_SVC_CMD_SET_PARAM, &clk, sizeof(clk), 0, 2000) || afe_status("bit clock 1.536 MHz")) {
-		/* does the DSP still answer at all (the core service answered before)? */
-		apr_cmd(APR_SVC_CORE, 0, AVCS_GET_STATE, NULL, 0, AVCS_GET_STATE_RSP, 2000);
-		return -1;
+		/* silent with the classic header: again in the DSP's own packet version 1 */
+		apr_ext = 1;
+		if (apr_cmd(APR_SVC_AFE, 0, AFE_SVC_CMD_SET_PARAM, &clk, sizeof(clk), 0, 2000) ||
+		    afe_status("bit clock 1.536 MHz (version 1 header)")) {
+			apr_ext = 0;
+			/* does the DSP still answer at all (the core service answered before)? */
+			apr_cmd(APR_SVC_CORE, 0, AVCS_GET_STATE, NULL, 0, AVCS_GET_STATE_RSP, 2000);
+			return -1;
+		}
 	}
 
 	/* the port: I2S on SD0, stereo, word select from us, 16 bits, 48 kHz */
