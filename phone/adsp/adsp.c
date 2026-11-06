@@ -669,6 +669,14 @@ int main(int argc, char **argv)
 	pm_init();
 	if (smem_init())
 		return 1;
+	if (argc > 1 && !strcmp(argv[1], "stop")) {
+		/* adsp stop: TrustZone shuts the DSP down (Linux qcom_scm_pas_shutdown), then the AOP hears it */
+		uint64_t r1 = 0;
+		int64_t rc = scm(6, 1, PAS_ADSP, 0, 0, &r1);
+		printf("stop: PAS shutdown of image 1 -> %lld/%llx\n", (long long)rc, (unsigned long long)r1);
+		qmp_send("{class: image, res: load_state, name: adsp, val: off}");
+		return rc || r1 ? 1 : 0;
+	}
 	/* 1 */
 	uint64_t pa;
 	uint32_t sz;
