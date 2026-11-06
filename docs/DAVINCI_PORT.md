@@ -30,7 +30,7 @@ dei valori di sweet vale anche qui (tabella sotto).
 | Voce | Valore |
 | --- | --- |
 | Prodotto | `davinci` (Mi 9T / Redmi K20, non Pro), `model = "DAVINCI"`, msm-id 0x16d, board-id 0x28 |
-| Seriale | `REDACTED` |
+| Seriale | (tolto dalla documentazione pubblica) |
 | Bootloader | sbloccato, `verifiedbootstate=orange` |
 | ROM installata | LineageOS userdebug (`lineage_davinci-userdebug`, BP2A.250805.005, Android 16), vendor MIUI V12.1.4.0.RFJMIXM |
 | Accesso root | `adb root` dopo aver attivato "Debug come root" nelle Opzioni sviluppatore |
