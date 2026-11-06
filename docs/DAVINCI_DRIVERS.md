@@ -947,3 +947,77 @@ nero**, Wi-Fi che si accende tardi e va **ricollegato a mano** a ogni avvio,
   con poke: il nostro pacchetto (pagina 0x9d6ff000, fine della
   cont_splash_region) termina (INT_CTRL bit 0) senza errori.
   **Patch 0210**: servizio `AppleARMBacklight` + setProperties → DCS 0x51.
+- **Telefono finito nella recovery LineageOS** (6 nov ~10:00): dopo un
+  `davinci-cmd.py reboot` (PSCI reset) ABL ha fatto un avvio normale invece
+  di tornare in fastboot; Android non parte (userdata è di iOS) e la
+  recovery ha `adb unauthorized`. Serve l'utente (Power+Vol-). **Patch
+  0211**: prima del reset il comando `reboot` scrive in IMEM
+  `0x146aa65c = 0x77665500` (la ragione "bootloader" di Linux,
+  `qcom,msm-imem-restart_reason`), così ABL torna in fastboot. Il PON del
+  PMIC non è scritto (il codice SPMI resta in sola lettura). Da provare.
+- **Batteria reale:** SweetBattery legge già il PM6150 (tensione, carica,
+  corrente) ma solo con `sweetbattery=1`, che le nostre immagini non
+  avevano: iOS vedeva sempre 100%. Aggiunto alle immagini 0210b/0212*.
+
+### Audio, vibrazione, Bluetooth, fotocamera: cosa c'è e cosa manca
+
+- **HackiOS** (POCO X5 Pro "redwood", `github.com/oosexgang/hackios-xnu-kernel`,
+  kernel APSL 2.0, userland MIT; copia locale `research/hackios-kernel`) ha
+  driver XNU per: ADSP + APR (`drivers/audio/hakios.adsp.c`), percorso
+  audio fino agli amplificatori (`hakios.sound.c`, `hakios.speaker.c`),
+  microfono, **torcia** (`camera/hakios.torch.c`), **vibrazione**
+  (`haptic/hakios.haptic.c`), **fotocamera** (`camera/hakios.camera.c`), e
+  un primo sguardo al Bluetooth. Redwood usa APR come SM7150 (AFE 4, ASM 7,
+  ADM 8): la parte protocollo è riutilizzabile; cambiano indirizzi, porta
+  (noi PRI MI2S), amplificatore (noi TFA9874) e i campanelli (noi APCS, loro
+  IPCC).
+- **Plug-in audio di iOS:** `phone/audio` = `RedwoodAudio.driver` (HackiOS,
+  MIT, via ios-topaz): dà al server audio "Speaker", "Codec" (microfono) e
+  "Actuator" (Taptic Engine); scrive in `/dev/redwood-audio`, legge
+  `/dev/redwood-mic`, manda le vibrazioni a `/dev/redwood-haptic`. Compilato
+  in CI (userland). Installazione reversibile: `tools/davinci-audio-install.sh
+  USERLAND_DIR` (`--undo` per toglierlo); rimette anche VirtualAudio (che
+  senza dispositivi audio faceva crashare mediaserverd).
+- **Patch 0212** (`bsd/dev/davinci_audio.c`): i tre nodi; l'audio per ora è
+  accettato e scartato (niente suono finché non c'è l'ADSP); il microfono dà
+  silenzio; la vibrazione accende il **motore del PM6150** (LDO a 3,0 V,
+  SID 1 periferica 0x53: VSET 0x40/0x41, EN_CTL 0x46 bit 7) per ogni tratto
+  di campioni sopra soglia, 15–400 ms, massimo 1 s poi pausa. Scritture SPMI
+  solo per quei tre registri, solo se il canale dell'arbitro appartiene agli
+  apps, ognuna riletta; al primo errore niente più scritture. Boot-arg
+  `dvhaptic`: 1 legge e basta, 2 un impulso di prova di 120 ms a 30 s
+  dall'avvio, 3 serve iOS. **Non ancora provata.**
+- **Suono vero (da fare, più giorni):** firmware ADSP estratto dal backup
+  del modem in `research/fw/adsp` (`adsp.mdt` + `b00`…`b26`, fuori da git);
+  DT davinci: carve-out `0x95700000` (38 MB), SMP2P 443/429 con campanello
+  APCS `0x17c0000c` bit 26, GLINK `lpass` bit 24, canali `IPCRTR` e
+  `apr_audio_svc`. Strada: un programma `adsp` sui moduli di `wland` (che fa
+  già PAS, SMEM, SMP2P, GLINK, QRTR per il modem), poi APR (AFE PRI MI2S,
+  ASM, ADM) seguendo `hakios.sound.c`, poi il TFA9874.
+- **Amplificatore TFA9874:** il contenitore di Xiaomi
+  (`/vendor/firmware/tfa98xx.cnt`, estratto in `research/fw/tfa`, 510 byte,
+  formato `PM3_01`) contiene solo scritture di registri ("bitfield" TFA2) e
+  un `9874_dummy.patch`: **nessun firmware DSP da caricare**, quindi basta
+  riprodurre quelle scritture via I2C (QUP `0x890000`, indirizzo `0x34`).
+- **Bluetooth:** `bluetoothd` supporta il trasporto UART
+  (`/dev/uart.bluetooth`, H4) ma conosce solo chip Broadcom (BCM_4377/4378/
+  4387/4388, 43430) e si ferma su un chip sconosciuto. Servirebbe un driver
+  UART GENI, il caricamento del firmware Qualcomm (`crbtfw21.tlv`/
+  `crnv21.bin`) e un'emulazione dei comandi Broadcom. HackiOS non l'ha fatto.
+  Fuori portata per ora.
+- **Torcia/fotocamera:** su HackiOS la torcia passa da una libreria iniettata
+  in mediaserverd e da MobileGestalt (camera-flash); la fotocamera da un
+  driver da 4000 righe più userland. Sul Mi 9T il flash è un modulo del
+  PM6150L: fattibile dopo la vibrazione (stesso percorso SPMI).
+
+**Al ritorno dell'utente** (telefono nella recovery: Power+Vol-):
+1. `fastboot boot shim/out/shim-boot-0212t.img` (kernel 0212: luminosità
+   0210, reboot→fastboot 0211, batteria reale, impulso di vibrazione a 30 s).
+2. Controllare nel live log: `SWEET BL:` (CoreBrightness trova
+   AppleARMBacklight? arrivano setProperties?), `DAVINCI HAPTIC:` (motore
+   letto, impulso), `SWEET BATTERY: PM6150` (percentuale reale).
+3. Provare lo slider della luminosità; poi `davinci-cmd.py reboot` per
+   vedere se torna in fastboot (0211).
+4. Se la vibrazione va: `tools/davinci-audio-install.sh research/userland-out-a`,
+   riavvio con `0212d`, controllare mediaserverd e la vibrazione della
+   tastiera.
