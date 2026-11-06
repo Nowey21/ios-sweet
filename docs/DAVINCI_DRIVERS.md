@@ -1018,7 +1018,7 @@ nero**, Wi-Fi che si accende tardi e va **ricollegato a mano** a ogni avvio,
    letto, impulso), `SWEET BATTERY: PM6150` (percentuale reale).
 3. Provare lo slider della luminosità; poi `davinci-cmd.py reboot` per
    vedere se torna in fastboot (0211).
-4. Se la vibrazione va: `tools/davinci-audio-install.sh research/userland-out-a`,
+4. Se la vibrazione va: `tools/davinci-audio-install.sh research/userland-out-d/phone-userland`,
    riavvio con `0212d`, controllare mediaserverd e la vibrazione della
    tastiera.
 - **`phone/adsp`** (`adsp STEP`, ancora da provare sul telefono): avvio
@@ -1042,3 +1042,9 @@ nero**, Wi-Fi che si accende tardi e va **ricollegato a mano** a ogni avvio,
   Avvio (`tfa_init.c`/`tfa_dev_start`): accensione, attesa PLL, voci della
   lista del dispositivo e del profilo, poi unmute. I2C: QUP `0x890000`,
   indirizzo `0x34`, reset GPIO 12.
+- **CI userland su Intel:** i runner macOS arm64 di GitHub erano pieni
+  ("job was not acquired ... after multiple attempts", due volte); il
+  workflow ora accetta `-f runner=macos-15-intel`. Run 42199467967 (32 s):
+  `adsp`, `RedwoodAudio.driver`, `wland`, strumenti → artifact locale
+  `research/userland-out-d/phone-userland` (per `davinci-audio-install.sh`
+  e `davinci-adsp-install.sh`).
