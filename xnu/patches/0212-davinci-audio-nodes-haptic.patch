@@ -1,0 +1,403 @@
+diff --git a/bsd/conf/files b/bsd/conf/files
+index df7c863..2849c8c 100755
+--- a/bsd/conf/files
++++ b/bsd/conf/files
+@@ -113,6 +113,7 @@ bsd/dev/sweet_cpufreq.c			standard
+ bsd/dev/sweet_poke.c			standard
+ bsd/dev/sweet_files.c			standard
+ bsd/dev/sweet_pmem.c			standard
++bsd/dev/davinci_audio.c			standard
+ bsd/dev/sweet_a6xx.c			standard
+ bsd/dev/sweet_gpu.c			standard
+ bsd/dev/sweet_rpmh.c			standard
+diff --git a/bsd/dev/davinci_audio.c b/bsd/dev/davinci_audio.c
+new file mode 100755
+index 0000000..8897f57
+--- /dev/null
++++ b/bsd/dev/davinci_audio.c
+@@ -0,0 +1,365 @@
++/*
++ * davinci (Mi 9T): the device nodes the audio plug-in of iOS (RedwoodAudio.driver, HackiOS/topaz,
++ * MIT; phone/audio) talks to, and the phone's vibration motor behind one of them.
++ *
++ *   /dev/redwood-audio   the speaker: whole frames of 48 kHz 16-bit stereo, never blocks. No sound
++ *                        yet (that needs the audio DSP, APR, the PRI MI2S port and the TFA9874):
++ *                        the frames are counted and dropped. ioctl _IOW('r', 1, {below, muted}): the
++ *                        volume, kept.
++ *   /dev/redwood-mic     the microphone: nothing to read yet (EWOULDBLOCK).
++ *   /dev/redwood-haptic  the Taptic Engine's samples (one channel, 48 kHz 16-bit) iOS plays on the
++ *                        plug-in's "Actuator" device; each stretch of them louder than a whisper
++ *                        turns the motor on for as long as it lasts (15 ms at least, 400 ms at most),
++ *                        and off again.
++ *
++ * The motor: an ERM on the PM6150's vibrator LDO (SPMI slave 1, peripheral 0x53, DT
++ * qcom,qpnp-vibrator-ldo at 0x5300, qcom,vib-ldo-volt-uv 3000000). Linux qpnp-vibrator-ldo:
++ * VSET_LB/UB (0x40/0x41) the voltage in mV, EN_CTL (0x46) bit 7 on, STATUS1 (0x08) bit 7 ready.
++ * The SPMI code of this kernel only reads (bsd/dev/sweet_spmi.c); the writes here go through
++ * the arbiter's channel of that one peripheral (arbiter v5: chnls 0xc600000 + 0x10000 * apid,
++ * EXT_WRITEL), only to those three registers, only when the arbiter says the apps processor owns
++ * it, every write read back; any surprise and nothing is written again this boot.
++ *
++ * Boot-arg dvhaptic: 0 (default) nothing; 1 a look (reads only); 2 ... and a 120 ms buzz 30 s
++ * after the start; 3 ... no buzz, the motor serves /dev/redwood-haptic. The audio nodes exist
++ * with dvaudio=1 (default) whatever dvhaptic says.
++ */
++#if defined(ARM64_BOARD_CONFIG_SWEET)
++#include <sys/param.h>
++#include <sys/systm.h>
++#include <sys/conf.h>
++#include <sys/uio.h>
++#include <sys/errno.h>
++#include <sys/ioccom.h>
++#include <miscfs/devfs/devfs.h>
++#include <kern/thread_call.h>
++#include <kern/clock.h>
++#include <kern/locks.h>
++#include <machine/machine_routines.h>
++#include <pexpert/pexpert.h>
++#include <mach/mach_time.h>
++
++extern vm_offset_t ml_io_map(vm_offset_t, vm_size_t);
++void davinci_audio_init(void);
++
++#define ARB_CORE_PA     0x0c440000u
++#define ARB_CHNLS_PA    0x0c600000u
++#define ARB_OBS_PA      0x0e600000u
++#define ARB_CFG_PA      0x0c40a000u
++#define VIB_SID         1
++#define VIB_PERIPH      0x53
++#define VIB_STATUS1     0x08
++#define VIB_VSET_LB     0x40
++#define VIB_VSET_UB     0x41
++#define VIB_EN_CTL      0x46
++#define VIB_MV          3000            /* qcom,vib-ldo-volt-uv */
++
++#define TAP_MIN_MS      15
++#define TAP_MAX_MS      400
++#define ON_LIMIT_MS     1000            /* then a rest as long */
++#define LOUD            1000            /* |sample| that counts as playing */
++
++static LCK_GRP_DECLARE(dva_grp, "davinci_audio");
++static LCK_MTX_DECLARE(dva_lock, &dva_grp);
++static vm_offset_t arb_core, arb_cfg, arb_obs, vib_chan;
++static unsigned vib_apid = 0xffff;
++static bool vib_ok, vib_on, vib_broken;
++static unsigned vib_level;
++static uint64_t vib_on_since, vib_rest_until;
++static thread_call_t vib_off_call;
++static uint64_t audio_frames;
++static uint32_t audio_below, audio_muted, audio_set;
++
++/* ---- the arbiter, for the motor's peripheral only ---- */
++
++static uint32_t
++rd(vm_offset_t base, unsigned off)
++{
++	uint32_t v = *(volatile uint32_t *)(base + off);
++	__asm__ volatile ("dmb oshld" ::: "memory");
++	return v;
++}
++
++static int
++vib_read(unsigned reg, uint8_t *out)
++{
++	unsigned off = 0x80u * vib_apid;
++	*(volatile uint32_t *)(arb_obs + off) = (1u << 27) | ((reg & 0xffu) << 4);     /* EXT_READL, 1 byte */
++	__asm__ volatile ("dsb osh" ::: "memory");
++	for (int i = 0; i < 1000; i++) {
++		uint32_t st = rd(arb_obs, off + 0x08);
++		if (st & 1u) {
++			if (st & 0x0eu) {
++				return -1;
++			}
++			*out = (uint8_t)rd(arb_obs, off + 0x18);
++			return 0;
++		}
++		delay(1);
++	}
++	return -1;
++}
++
++static int
++vib_write(unsigned reg, uint8_t val)
++{
++	if (vib_broken || (reg != VIB_VSET_LB && reg != VIB_VSET_UB && reg != VIB_EN_CTL)) {
++		return -1;
++	}
++	*(volatile uint32_t *)(vib_chan + 0x10) = val;                                  /* WDATA0 */
++	__asm__ volatile ("dsb osh" ::: "memory");
++	*(volatile uint32_t *)(vib_chan + 0x00) = (0u << 27) | ((reg & 0xffu) << 4);    /* EXT_WRITEL, 1 byte */
++	__asm__ volatile ("dsb osh" ::: "memory");
++	int rc = -1;
++	for (int i = 0; i < 1000; i++) {
++		uint32_t st = rd(vib_chan, 0x08);
++		if (st & 1u) {
++			rc = (st & 0x0eu) ? -1 : 0;
++			break;
++		}
++		delay(1);
++	}
++	uint8_t back = 0;
++	if (rc == 0 && (vib_read(reg, &back) || back != val)) {
++		rc = -1;
++	}
++	if (rc) {
++		vib_broken = true;
++		printf("DAVINCI HAPTIC: write %#x = %#x failed (read back %#x): no more writes this boot\n", reg, val, back);
++	}
++	return rc;
++}
++
++static void
++vib_set(bool on)
++{
++	if (!vib_ok || vib_on == on) {
++		return;
++	}
++	if (vib_write(VIB_EN_CTL, on ? 0x80 : 0x00) == 0) {
++		vib_on = on;
++		vib_on_since = on ? mach_absolute_time() : 0;
++	} else {
++		(void)vib_write(VIB_EN_CTL, 0x00);      /* refused anyway once broken: best effort */
++		vib_on = false;
++	}
++}
++
++static uint64_t
++ms_abs(uint64_t ms)
++{
++	uint64_t t;
++	nanoseconds_to_absolutetime(ms * NSEC_PER_MSEC, &t);
++	return t;
++}
++
++static void
++vib_off(__unused thread_call_param_t a, __unused thread_call_param_t b)
++{
++	lck_mtx_lock(&dva_lock);
++	vib_set(false);
++	lck_mtx_unlock(&dva_lock);
++}
++
++/* the motor on for ms (within the limits), off by the timer */
++static void
++vib_pulse(uint64_t ms)
++{
++	uint64_t now = mach_absolute_time();
++	if (!vib_ok || now < vib_rest_until) {
++		return;
++	}
++	if (ms < TAP_MIN_MS) {
++		ms = TAP_MIN_MS;
++	} else if (ms > TAP_MAX_MS) {
++		ms = TAP_MAX_MS;
++	}
++	if (vib_on && now - vib_on_since > ms_abs(ON_LIMIT_MS)) {
++		vib_set(false);
++		vib_rest_until = now + ms_abs(ON_LIMIT_MS);
++		return;
++	}
++	vib_set(true);
++	thread_call_enter_delayed(vib_off_call, now + ms_abs(ms));
++}
++
++static int
++vib_probe(void)
++{
++	arb_core = ml_io_map(ARB_CORE_PA, 0x2000);
++	arb_cfg = ml_io_map(ARB_CFG_PA, 0x1000);
++	arb_obs = ml_io_map(ARB_OBS_PA, 0x10000);
++	if (!arb_core || !arb_cfg || !arb_obs) {
++		return -1;
++	}
++	unsigned count = rd(arb_core, 4) & 0x7ffu, owner = 7;
++	for (unsigned i = 0; i < count && i < 512; i++) {
++		uint32_t map = rd(arb_core, 0x900u + 4u * i);
++		if (map && ((map >> 8) & 0xfffu) == ((VIB_SID << 8) | VIB_PERIPH)) {
++			vib_apid = i;
++			owner = rd(arb_cfg, 0x700u + 4u * i) & 7u;
++			break;
++		}
++	}
++	if (vib_apid == 0xffff) {
++		printf("DAVINCI HAPTIC: no arbiter channel for %u/%#x\n", VIB_SID, VIB_PERIPH);
++		return -1;
++	}
++	uint8_t type = 0, sub = 0, st = 0, lb = 0, ub = 0, en = 0;
++	int r = vib_read(0x04, &type) | vib_read(0x05, &sub) | vib_read(VIB_STATUS1, &st) |
++	    vib_read(VIB_VSET_LB, &lb) | vib_read(VIB_VSET_UB, &ub) | vib_read(VIB_EN_CTL, &en);
++	printf("DAVINCI HAPTIC: apid %u owner %u: type %#x subtype %#x status1 %#x vset %u mV en %#x%s\n",
++	    vib_apid, owner, type, sub, st, lb | ub << 8, en, r ? " (a read failed)" : "");
++	if (r || owner != 0) {
++		return -1;
++	}
++	vib_chan = ml_io_map(ARB_CHNLS_PA + 0x10000u * vib_apid, 0x1000);
++	return vib_chan ? 0 : -1;
++}
++
++static void
++vib_start(__unused thread_call_param_t a, __unused thread_call_param_t b)
++{
++	lck_mtx_lock(&dva_lock);
++	if (vib_write(VIB_VSET_LB, VIB_MV & 0xff) == 0 && vib_write(VIB_VSET_UB, VIB_MV >> 8) == 0) {
++		vib_ok = true;
++		printf("DAVINCI HAPTIC: motor ready at %u mV (dvhaptic=%u)\n", VIB_MV, vib_level);
++		if (vib_level == 2) {
++			vib_pulse(120);
++		}
++	}
++	lck_mtx_unlock(&dva_lock);
++}
++
++/* ---- the nodes ---- */
++
++#define MINOR_AUDIO     0
++#define MINOR_MIC       1
++#define MINOR_HAPTIC    2
++
++struct dva_volume {
++	uint32_t below, muted;
++};
++#define DVA_SET_VOLUME  _IOW('r', 1, struct dva_volume)
++
++static int
++dva_open(__unused dev_t dev, __unused int flags, __unused int type, __unused struct proc *p)
++{
++	return 0;
++}
++
++static int
++dva_close(__unused dev_t dev, __unused int flags, __unused int type, __unused struct proc *p)
++{
++	return 0;
++}
++
++static int
++dva_read(dev_t dev, __unused struct uio *uio, __unused int flags)
++{
++	return minor(dev) == MINOR_MIC ? EWOULDBLOCK : ENODEV;
++}
++
++static int
++dva_write(dev_t dev, struct uio *uio, __unused int flags)
++{
++	int16_t buf[512];
++	int err = 0;
++	uint64_t frames = 0, loud = 0;
++
++	while (uio_resid(uio) > 0 && err == 0) {
++		size_t n = MIN((size_t)uio_resid(uio), sizeof(buf));
++		err = uiomove((caddr_t)buf, (int)n, uio);
++		if (err) {
++			break;
++		}
++		if (minor(dev) == MINOR_HAPTIC) {
++			for (size_t i = 0; i < n / 2; i++) {
++				if (buf[i] > LOUD || buf[i] < -LOUD) {
++					loud++;
++				}
++			}
++			frames += n / 2;
++		} else {
++			frames += n / 4;
++		}
++	}
++	lck_mtx_lock(&dva_lock);
++	if (minor(dev) == MINOR_AUDIO) {
++		audio_frames += frames;
++	} else if (minor(dev) == MINOR_HAPTIC && loud > 0 && vib_level >= 3) {
++		vib_pulse(frames * 1000 / 48000);
++	}
++	lck_mtx_unlock(&dva_lock);
++	return err;
++}
++
++static int
++dva_ioctl(dev_t dev, u_long cmd, caddr_t data, __unused int flag, __unused struct proc *p)
++{
++	if (minor(dev) != MINOR_AUDIO || cmd != DVA_SET_VOLUME) {
++		return ENOTTY;
++	}
++	struct dva_volume *v = (struct dva_volume *)data;
++	lck_mtx_lock(&dva_lock);
++	audio_below = v->below;
++	audio_muted = v->muted;
++	audio_set++;
++	lck_mtx_unlock(&dva_lock);
++	if (audio_set <= 20) {
++		printf("DAVINCI AUDIO: volume %u/8 dB under the top%s (%llu frames so far)\n", v->below,
++		    v->muted ? ", muted" : "", audio_frames);
++	}
++	return 0;
++}
++
++static const struct cdevsw dva_cdevsw = {
++	.d_open       = dva_open,
++	.d_close      = dva_close,
++	.d_read       = dva_read,
++	.d_write      = dva_write,
++	.d_ioctl      = dva_ioctl,
++	.d_stop       = eno_stop,
++	.d_reset      = eno_reset,
++	.d_ttys       = NULL,
++	.d_select     = eno_select,
++	.d_mmap       = eno_mmap,
++	.d_strategy   = eno_strat,
++	.d_reserved_1 = eno_getc,
++	.d_reserved_2 = eno_putc,
++	.d_type       = 0,
++};
++
++void
++davinci_audio_init(void)
++{
++	uint32_t audio = 1;
++	PE_parse_boot_argn("dvaudio", &audio, sizeof(audio));
++	PE_parse_boot_argn("dvhaptic", &vib_level, sizeof(vib_level));
++	if (audio) {
++		int major = cdevsw_add(-1, &dva_cdevsw);
++		if (major < 0) {
++			printf("DAVINCI AUDIO: cdevsw_add failed (%d)\n", major);
++		} else {
++			devfs_make_node(makedev(major, MINOR_AUDIO), DEVFS_CHAR, UID_ROOT, GID_WHEEL, 0666, "redwood-audio");
++			devfs_make_node(makedev(major, MINOR_MIC), DEVFS_CHAR, UID_ROOT, GID_WHEEL, 0666, "redwood-mic");
++			devfs_make_node(makedev(major, MINOR_HAPTIC), DEVFS_CHAR, UID_ROOT, GID_WHEEL, 0666, "redwood-haptic");
++			printf("DAVINCI AUDIO: /dev/redwood-audio, -mic, -haptic (major %d; no sound yet)\n", major);
++		}
++	}
++	if (vib_level == 0) {
++		return;
++	}
++	if (vib_probe() != 0) {
++		printf("DAVINCI HAPTIC: motor left alone\n");
++		return;
++	}
++	if (vib_level >= 2) {
++		vib_off_call = thread_call_allocate(vib_off, NULL);
++		thread_call_t start = thread_call_allocate(vib_start, NULL);
++		uint64_t at;
++		clock_interval_to_deadline(vib_level == 2 ? 30 : 5, NSEC_PER_SEC, &at);
++		thread_call_enter_delayed(start, at);
++	}
++}
++#endif /* ARM64_BOARD_CONFIG_SWEET */
+diff --git a/bsd/dev/sweet_ufs.c b/bsd/dev/sweet_ufs.c
+index 1f2045e..c81a51b 100755
+--- a/bsd/dev/sweet_ufs.c
++++ b/bsd/dev/sweet_ufs.c
+@@ -55,6 +55,7 @@ extern void sweet_touch_init(void);
+ extern void sweet_fts_init(void);
+ extern void sweet_cpufreq_init(void);
+ extern void sweet_pmem_init(void);
++extern void davinci_audio_init(void);
+ extern void flame_wlan_init(void);
+ extern void sweet_gpu_init(void);
+ extern void sweet_usb_probe(void);
+@@ -663,6 +664,7 @@ sweet_ufs_init(void)
+ 	sweet_sample_start();
+ 	sweet_cpufreq_init();
+ 	sweet_pmem_init();       /* /dev/pmem: bsd/dev/sweet_pmem.c */
++	davinci_audio_init();    /* /dev/redwood-audio, -mic, -haptic: bsd/dev/davinci_audio.c */
+ 	flame_wlan_init();       /* /dev/wlan, en0 + Apple80211 for wifid: bsd/dev/flame_wlan.c */
+ 	sweet_gpu_init();        /* Adreno 640 (sweetgpu=1): bsd/dev/sweet_gpu.c */
+ 	/* Input drivers (HID services in iokit/Kernel/arm/hid/SweetHID.cpp). */
