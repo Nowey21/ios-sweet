@@ -1,5 +1,5 @@
 diff --git a/bsd/dev/davinci_audio.c b/bsd/dev/davinci_audio.c
-index 8897f57..29dddd2 100755
+index 8897f57..0e99192 100755
 --- a/bsd/dev/davinci_audio.c
 +++ b/bsd/dev/davinci_audio.c
 @@ -29,6 +29,7 @@
@@ -19,7 +19,7 @@ index 8897f57..29dddd2 100755
  #define TAP_MAX_MS      400
  #define ON_LIMIT_MS     1000            /* then a rest as long */
  #define LOUD            1000            /* |sample| that counts as playing */
-@@ -243,8 +244,14 @@ struct dva_volume {
+@@ -243,8 +244,13 @@ struct dva_volume {
  #define DVA_SET_VOLUME  _IOW('r', 1, struct dva_volume)
  
  static int
@@ -29,13 +29,12 @@ index 8897f57..29dddd2 100755
 +	static const char *const names[] = { "audio", "mic", "haptic" };
 +	char who[32];
 +	proc_selfname(who, sizeof(who));
-+	printf("DAVINCI AUDIO: %s opens /dev/redwood-%s (flags %#x)
-+", who,
++	printf("DAVINCI AUDIO: %s opens /dev/redwood-%s (flags %#x)\n", who,
 +	    minor(dev) < 3 ? names[minor(dev)] : "?", flags);
  	return 0;
  }
  
-@@ -287,8 +294,17 @@ dva_write(dev_t dev, struct uio *uio, __unused int flags)
+@@ -287,8 +293,16 @@ dva_write(dev_t dev, struct uio *uio, __unused int flags)
  	lck_mtx_lock(&dva_lock);
  	if (minor(dev) == MINOR_AUDIO) {
  		audio_frames += frames;
@@ -45,8 +44,7 @@ index 8897f57..29dddd2 100755
 +		static uint32_t logged;
 +		if (logged < 40 && (loud > 0 || logged < 5)) {
 +			logged++;
-+			printf("DAVINCI HAPTIC: write %llu frames, %llu loud%s
-+", frames, loud,
++			printf("DAVINCI HAPTIC: write %llu frames, %llu loud%s\n", frames, loud,
 +			    loud > 0 && vib_level >= 3 ? ": pulse" : "");
 +		}
 +		if (loud > 0 && vib_level >= 3) {
