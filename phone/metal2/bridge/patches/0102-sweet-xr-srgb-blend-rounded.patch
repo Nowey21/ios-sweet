@@ -1,0 +1,15 @@
+diff --git a/crates/metal2vulkan/src/lower/arith/extended_range/blend.rs b/crates/metal2vulkan/src/lower/arith/extended_range/blend.rs
+index 0b004f25..19c31b56 100644
+--- a/crates/metal2vulkan/src/lower/arith/extended_range/blend.rs
++++ b/crates/metal2vulkan/src/lower/arith/extended_range/blend.rs
+@@ -767,7 +767,9 @@ fn planned_for(
+     // and the color channels' blend color difference.
+     let fast = math == BlendMath::Fast;
+     if fast && srgb && (!narrow || masked) {
+-        return Err(refused(ExtendedRangeBlend::SrgbForm));
++        // sweet: the rounded model holds for any blend into an _sRGB form (above); take it
++        // rather than refuse the pipeline (iOS 16 AegirPoster: the Earth poster crash-looped)
++        return planned_for(eq, (has_alpha, srgb), written, (float, BlendMath::Rounded));
+     }
+     let opaque_ = !has_alpha;
+     let color = match colors {
