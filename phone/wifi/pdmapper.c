@@ -19,6 +19,9 @@ static const struct { const char *service, *domain; uint32_t instance; } db[] = 
 	{ "tms/servreg", "msm/adsp/audio_pd", 74 },
 	{ "avs/audio", "msm/adsp/audio_pd", 74 },
 	{ "tms/servreg", "msm/adsp/sensor_pd", 74 },
+	/* PD restart on: a failing user PD (sensors, which nothing serves here) is restarted alone
+	 * instead of taking the whole DSP down (EF:sensor_process ... USER-PD DOG) */
+	{ "tms/pdr_enabled", "msm/adsp/root_pd", 74 },
 #else
 	{ "tms/servreg", "msm/modem/root_pd", 180 },
 	{ "gps/gps_service", "msm/modem/root_pd", 180 },
