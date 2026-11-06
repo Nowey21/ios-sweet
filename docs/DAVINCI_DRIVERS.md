@@ -852,3 +852,43 @@ nero**, Wi-Fi che si accende tardi e va **ricollegato a mano** a ogni avvio,
 4. Se va: provare `0206mf8g` (GPU 565 MHz). Poi togliere i job `lsreg` e
    `oslogwifi`.
 5. Se il telefono si blocca di nuovo: `0206mf8s` (CPU a ~1,7 GHz).
+
+### Mattina 6 novembre: batch 1, 8 core, sfondo, editor degli sfondi
+
+- **Boot 25 (`0206mf8`, `cpus=8 flamecpufreq=1`)** + batch 1
+  (`tools/davinci-batch1-install.sh`, corretto: Python di Windows non apre i
+  `/tmp` di Git Bash, ora `cygpath -m`). Con gli A76 accesi il frame rate
+  arriva a **50–56 fps** (27 la sera prima). `lsreg -r` a 162 s →
+  `rebuild -> 1`: **lo sfondo funziona** (confermato dall'utente).
+- **Wi-Fi che non si ricollega da solo:** nell'oslog di wifid (job
+  `oslogwifi`, file non in git: contiene il nome della rete) l'auto-join
+  scansiona bene e vede la rete a -31 dBm (5 GHz) / -35 dBm (2,4 GHz), poi
+  scarta ogni candidato con "Below minimum RSSI threshold". I nostri
+  risultati di scansione hanno noise 0 / snr 0 / noise_known 0 e
+  `APPLE80211_IOC_NOISE` (17) risponde EOPNOTSUPP. **Patch 0207**
+  (`0207-davinci-wifi-noise-floor.patch`): noise -95 dBm, snr = rssi + 95
+  nei risultati, GET NOISE con lo stesso layout di GET RSSI. **Non ancora
+  provata:** vedi sotto.
+- **Kernel compilati con Xcode 16 non partono:** il build di 0207 su
+  macos-15 (run 42178564570) si ferma subito dopo "SWEET EARLY EL: kprintf
+  startup complete" (`shim-boot-0207mf8.img`, sha256 `59c19ec1…`). Il
+  kernel 0206 compilato con Xcode 16 (`xnu/out-0206-x16`) non era mai stato
+  avviato: il problema è la toolchain, non la patch. Finché non c'è un
+  kernel buono serve un runner con Xcode 14/15 (macos-14 rifiutato da
+  GitHub dal 5 novembre) o capire cosa rompe Xcode 16.
+- **Editor degli sfondi bloccato:** il poster "Terra" (AegirPoster) andava in
+  loop: due shader (`aegir_star_fsh`, `aegir_earth_fsh`) scrivono in
+  `BGR10_XR_sRGB` con blending, metal2vulkan rifiuta
+  `ExtendedRangeBlend(SrgbForm)` in fast math → pipeline nil →
+  "command buffer refused: foreign render pipeline" → check-in timeout ogni
+  5 s, SpringBoard fermo. **Patch bridge 0102**
+  (`phone/metal2/bridge/patches/0102-sweet-xr-srgb-blend-rounded.patch`):
+  in quel caso usa il modello "rounded" (che secondo i commenti della
+  libreria vale per ogni blend in una forma `_sRGB`) invece di rifiutare.
+  Build gpu-userland 42179048183 (Xcode 16: per lo userland va bene),
+  installato in `SweetMetal2.bundle`; copia del vecchio in
+  `/private/var/local/metal2-backup-0206/`. Risultato: zero rifiuti,
+  **l'editor degli sfondi si apre** (confermato dall'utente).
+- Ancora aperti: PridePoster e assetsd crashano nello stesso punto (sig 6,
+  non GPU); i servizi di sintesi vocale (KonaSynthesizer, MacinTalkAUSP,
+  SiriTTSSynthesizer) si riavviano in loop; Safari da verificare.
