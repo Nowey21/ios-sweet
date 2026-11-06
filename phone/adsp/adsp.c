@@ -423,6 +423,81 @@ static void net_cb(const struct qrtr_hdr *h, const uint8_t *d, uint32_t n)
 	}
 }
 
+/* ---- APR on apr_audio_svc (Linux drivers/soc/qcom/apr.c, include/linux/soc/qcom/apr.h) ---- */
+
+void link_aux(const char *name, void (*cb)(const uint8_t *, uint32_t));	/* link2.c */
+int link_aux_ready(void);
+int link_aux_send(const void *data, uint32_t len);
+
+struct apr_hdr {
+	uint16_t hdr_field, pkt_size;
+	uint8_t src_svc, src_domain;
+	uint16_t src_port;
+	uint8_t dest_svc, dest_domain;
+	uint16_t dest_port;
+	uint32_t token, opcode;
+};
+#define APR_HDR_FIELD_CMD	((1u << 8) | (5u << 4))	/* SEQ_CMD, 20-byte header, version 0 */
+#define APR_DOMAIN_ADSP		4
+#define APR_DOMAIN_APPS		5
+#define APR_SVC_CORE		3	/* AVCS */
+#define APR_BASIC_RSP		0x000110e8
+#define AVCS_GET_STATE		0x0001290c	/* AVCS_CMD_ADSP_EVENT_GET_STATE */
+#define AVCS_GET_STATE_RSP	0x0001290d
+#define AVCS_GET_VERSIONS	0x00012905
+#define AVCS_GET_VERSIONS_RSP	0x00012906
+
+static uint32_t apr_got_opcode, apr_got_token;
+static uint32_t apr_got[64];
+static uint32_t apr_got_len;
+
+static void apr_cb(const uint8_t *d, uint32_t n)
+{
+	struct apr_hdr h;
+	if (n < sizeof(h))
+		return;
+	memcpy(&h, d, sizeof(h));
+	uint32_t plen = n - sizeof(h);
+	printf("apr: < svc %u/%u port %u -> %u/%u: opcode %#x token %u, %u bytes:", h.src_svc, h.src_domain, h.src_port,
+	    h.dest_svc, h.dest_domain, h.opcode, h.token, plen);
+	for (uint32_t i = 0; i < plen / 4 && i < 16; i++) {
+		uint32_t w;
+		memcpy(&w, d + sizeof(h) + 4 * i, 4);
+		printf(" %08x", w);
+	}
+	printf("\n");
+	apr_got_opcode = h.opcode;
+	apr_got_token = h.token;
+	apr_got_len = plen < sizeof(apr_got) ? plen : sizeof(apr_got);
+	memcpy(apr_got, d + sizeof(h), apr_got_len);
+}
+
+static int apr_cmd(uint8_t svc, uint16_t port, uint32_t opcode, const void *payload, uint32_t len, uint32_t want,
+    unsigned ms)
+{
+	static uint32_t token = 1;
+	uint8_t pkt[512];
+	struct apr_hdr h = {
+		.hdr_field = APR_HDR_FIELD_CMD, .pkt_size = (uint16_t)(sizeof(h) + len), .src_svc = svc,
+		.src_domain = APR_DOMAIN_APPS, .src_port = 0, .dest_svc = svc, .dest_domain = APR_DOMAIN_ADSP,
+		.dest_port = port, .token = ++token, .opcode = opcode,
+	};
+	memcpy(pkt, &h, sizeof(h));
+	if (len)
+		memcpy(pkt + sizeof(h), payload, len);
+	apr_got_opcode = 0;
+	if (link_aux_send(pkt, sizeof(h) + len))
+		return -1;
+	uint64_t end = link_ms() + ms;
+	while (link_ms() < end) {
+		link_poll(5);
+		if (apr_got_opcode == want || (apr_got_opcode == APR_BASIC_RSP && apr_got_token == h.token))
+			return 0;
+	}
+	printf("apr: no answer to %#x in %u ms\n", opcode, ms);
+	return -1;
+}
+
 int main(int argc, char **argv)
 {
 	int steps = argc > 1 ? atoi(argv[1]) : 1;
@@ -486,11 +561,23 @@ int main(int argc, char **argv)
 		return 0;
 	/* 6 */
 link:
+	link_aux("apr_audio_svc", apr_cb);
 	if (link_up(net_cb, 10000)) {
 		fprintf(stderr, "glink/qrtr: not up\n");
 		return 1;
 	}
 	pdmapper_init();
+	if (steps >= 7) {
+		/* 7: APR to the DSP's core service (AVCS): are the audio services up, and which are there */
+		uint64_t wait = link_ms() + 10000;
+		while (!link_aux_ready() && link_ms() < wait)
+			link_poll(10);
+		printf("step 7: apr_audio_svc %s\n", link_aux_ready() ? "open both ways" : "NOT open");
+		if (link_aux_ready()) {
+			apr_cmd(APR_SVC_CORE, 0, AVCS_GET_STATE, NULL, 0, AVCS_GET_STATE_RSP, 2000);
+			apr_cmd(APR_SVC_CORE, 0, AVCS_GET_VERSIONS, NULL, 0, AVCS_GET_VERSIONS_RSP, 2000);
+		}
+	}
 	uint64_t end = link_ms() + 120000;	/* the DSP's user PDs ask while they start: keep answering */
 	while (link_ms() < end) {
 		smp2p_service();

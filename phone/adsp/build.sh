@@ -8,6 +8,6 @@ mkdir -p out
 CC="${IOS_CC:-xcrun --sdk iphoneos clang -arch arm64 -miphoneos-version-min=16.0}"
 W=../wifi
 $CC -O2 -Wall -Wextra -Wno-unused-parameter -I$W -DIPC_GLINK=24 -DGLINK_HOST=SMEM_HOST_ADSP -DQRTR_NODE_MODEM=5 \
-	-DPDMAPPER_ADSP -o out/adsp adsp.c $W/smem.c $W/pmem.c $W/glink.c $W/link.c $W/qmi.c $W/pdmapper.c
+	-DPDMAPPER_ADSP -o out/adsp adsp.c $W/smem.c $W/pmem.c $W/glink.c link2.c $W/qmi.c $W/pdmapper.c
 codesign -f -s - out/adsp
 ls -la out/adsp
