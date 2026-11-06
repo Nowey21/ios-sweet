@@ -1,0 +1,20 @@
+diff --git a/bsd/dev/redwood_apple80211.c b/bsd/dev/redwood_apple80211.c
+index 5f6a4cc..9b3f363 100644
+--- a/bsd/dev/redwood_apple80211.c
++++ b/bsd/dev/redwood_apple80211.c
+@@ -426,6 +426,15 @@ get(struct apple80211req *request)
+ 		}
+ 		break;
+ 	}
++	case 106: {                             /* RSSI_BOUNDS: auto-join's minimum (RSSI_THRESHOLD) comes from here */
++		struct {
++			uint32_t version;
++			int32_t min, max, threshold;
++		} answer = { .version = 1, .min = -100, .max = 0, .threshold = -80 };
++
++		error = give(request, &answer, sizeof(answer));
++		break;
++	}
+ 	case 17: {                              /* the noise floor, laid out as RSSI's answer */
+ 		struct {
+ 			uint32_t version, radios, unit;
