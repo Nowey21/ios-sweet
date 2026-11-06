@@ -9,6 +9,7 @@ on:
     paths:
       - "phone/wifi/**"
       - "phone/tools/**"
+      - "phone/audio/**"
       - "phone/turnip/v2test.cpp"
       - "phone/turnip/NativeAdrenoABI.h"
       - ".github/workflows/userland.yml"
@@ -46,6 +47,12 @@ jobs:
           sh phone/tools/build.sh
           mkdir -p phone/wifi/out/tools && cp phone/tools/out/* phone/wifi/out/tools/
           for f in phone/tools/out/*; do nm -m "$f" | grep "weak external" | grep -v "dynamically looked up" | sed "s|^|$f: |" || true; done
+
+      - name: "RedwoodAudio.driver (HAL plug-in: speaker, microphone, haptics)"
+        run: |
+          sh phone/audio/build.sh
+          cp -R phone/audio/out/RedwoodAudio.driver phone/wifi/out/
+          nm -m phone/audio/out/RedwoodAudio.driver/RedwoodAudio | grep "weak external" || true
 
       - name: Check binaries
         run: |
