@@ -507,7 +507,7 @@ static int apr_cmd(uint8_t svc, uint16_t port, uint32_t opcode, const void *payl
  * sends silence; gpio49's level is then sampled to see the clock toggle.
  */
 #define APR_SVC_AFE		4
-#define AFE_SVC_CMD_SET_PARAM	0x000100fc
+#define AFE_SVC_CMD_SET_PARAM	0x000100f3
 #define AFE_PORT_CMD_SET_PARAM_V2 0x000100ef
 #define AFE_PORT_CMD_DEVICE_START 0x000100e5
 #define AFE_PORT_CMD_DEVICE_STOP 0x000100e6
