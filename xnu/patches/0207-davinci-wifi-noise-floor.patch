@@ -1,0 +1,30 @@
+diff --git a/bsd/dev/redwood_apple80211.c b/bsd/dev/redwood_apple80211.c
+index e2674ee..5f6a4cc 100644
+--- a/bsd/dev/redwood_apple80211.c
++++ b/bsd/dev/redwood_apple80211.c
+@@ -259,6 +259,9 @@ give_network(const struct apple80211req *request, const struct redwood_sta_bss *
+ 	result->version = 1;
+ 	channel_fill(&result->channel, bss->frequency, 0);
+ 	result->rssi = bss->rssi;
++	result->noise_known = 1;               /* the noise floor wland assumes (rssi = snr - 95) */
++	result->noise = -95;
++	result->snr = (int16_t)(bss->rssi + 95);
+ 	result->beacon_interval = bss->beacon_interval;
+ 	result->capability = bss->capability;
+ 	memcpy(result->bssid, bss->bssid, sizeof(result->bssid));
+@@ -423,6 +426,15 @@ get(struct apple80211req *request)
+ 		}
+ 		break;
+ 	}
++	case 17: {                              /* the noise floor, laid out as RSSI's answer */
++		struct {
++			uint32_t version, radios, unit;
++			int32_t each[4], all, each_ext[4], all_ext;
++		} answer = { .version = 1, .radios = 1, .each = { -95 }, .all = -95, .each_ext = { -95 }, .all_ext = -95 };
++
++		error = state->phase != REDWOOD_STA_JOINED ? ENXIO : give(request, &answer, sizeof(answer));
++		break;
++	}
+ 	case 16: {                              /* how strongly it is heard: dBm, per radio and all together, twice over */
+ 		struct {
+ 			uint32_t version, radios, unit;

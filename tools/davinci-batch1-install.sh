@@ -20,6 +20,8 @@ U=${1:?usage: davinci-batch1-install.sh USERLAND_DIR}
 F="python -I tools/davinci-files.py"
 J="python -I tools/davinci-launchd-job.py"
 tmp=$(mktemp -d)
+# Windows Python cannot open Git Bash's /tmp paths
+command -v cygpath >/dev/null && tmp=$(cygpath -m "$tmp")
 
 $F put "$U/wland" /private/var/local/bin/wland 755
 for t in delayrun lsreg prefs oslog psx pstack nettest openapp exq; do
