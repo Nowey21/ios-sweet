@@ -338,10 +338,16 @@ static int boot_adsp(void)
 		memcpy(meta + ehsz, h, ph[hash_seg].filesz);
 		free(h);
 	}
+	printf("boot: %zu bytes of metadata: allocating
+", meta_len);
 	uint64_t meta_pa = pm_alloc(meta_len, 0x1000), r1 = 0;
 	if (!meta_pa)
 		return -1;
+	printf("boot: metadata at %llx: writing
+", (unsigned long long)meta_pa);
 	pm_wr(meta_pa, meta, meta_len);
+	printf("boot: asking TrustZone (init image 1)
+");
 	int64_t rc = scm(1, 2 | (2u << 6), PAS_ADSP, meta_pa, 0, &r1);
 	printf("boot: init image 1 (%zu bytes of metadata) -> %lld/%llx\n", meta_len, (long long)rc, (unsigned long long)r1);
 	if (rc || r1)
