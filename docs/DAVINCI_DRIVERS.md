@@ -1084,3 +1084,29 @@ nero**, Wi-Fi che si accende tardi e va **ricollegato a mano** a ogni avvio,
     gestisce un solo canale) e parlare APR: AFE porta PRI MI2S, ASM, ADM.
 - **CI:** anche `xnu.yml` accetta `-f runner=macos-15-intel` (i runner arm64
   di GitHub erano pieni).
+
+### 6 novembre sera: vibrazione funziona, APR risponde
+
+- **Vibrazione funziona** (confermato dall'utente: test di CoreHaptics e
+  pressione lunga sulle icone). La catena: UIKit/CoreHaptics → mediaserverd →
+  `RedwoodAudio.driver` ("Actuator") → `/dev/redwood-haptic` → 0212/0213 →
+  LDO del motore del PM6150. Due blocchi trovati:
+  1. CoreHaptics diceva "the hardware DOES NOT SUPPORT haptics"
+     (`tools`: `sound_test haptic`, da HackiOS, MIT). MobileGestalt risponde
+     `SupportsHapticPlayback` da `IODeviceTree:/product/haptics`, nodo che il
+     D22AP ha (`closed-loop`, `supports-3rd-party-haptics`) ma che
+     `mkadt.py` non copiava (solo le proprietà di `/product`). Ora copia
+     i figli `haptics` e `audio` (non `camera`). ADT vecchia salvata come
+     `shim/out/davinci-flame-noh.adt`; immagine `shim-boot-0213h.img`.
+  2. MobileGestalt tiene le risposte in cache:
+     `/private/var/containers/Shared/SystemGroup/systemgroup.com.apple.mobilegestaltcache/Library/Caches/com.apple.MobileGestalt.plist`
+     (copia in `research/mg-backup`, fuori da git). Cancellata, poi
+     riavviati mediaserverd e SpringBoard (`psx -k`): iOS la ricostruisce.
+- **APR risponde** (`adsp 7`, `phone/adsp/link2.c` = link.c con un secondo
+  canale GLINK): `AVCS_GET_STATE` → 1 (servizi audio pronti);
+  `AVCS_GET_VERSIONS` → 9 servizi, tra cui AFE (4, 0x260000), ASM (7),
+  ADM (8). Il PD dei sensori fallisce ancora, ma con PDR il DSP resta su.
+- **Reboot remoto:** una volta su 5 è finito di nuovo nella recovery anche
+  con la ragione IMEM di 0211 (forse quando l'ADSP è acceso); da capire.
+- Prossimo: suono dall'altoparlante: AFE porta PRI MI2S (clock e avvio
+  porta), ADM/ASM (flusso PCM 48 kHz dal buffer condiviso), poi TFA9874.
