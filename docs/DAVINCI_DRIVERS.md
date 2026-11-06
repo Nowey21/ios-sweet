@@ -1048,3 +1048,39 @@ nero**, Wi-Fi che si accende tardi e va **ricollegato a mano** a ogni avvio,
   `adsp`, `RedwoodAudio.driver`, `wland`, strumenti → artifact locale
   `research/userland-out-d/phone-userland` (per `davinci-audio-install.sh`
   e `davinci-adsp-install.sh`).
+
+### 6 novembre pomeriggio: luminosità, vibrazione, audio di iOS, ADSP acceso
+
+- **Luminosità funziona** (0210, confermato dall'utente): CoreBrightness
+  trova `AppleARMBacklight` e manda `brightness` 330 → 949 …; ogni valore
+  va al pannello come DCS 0x51 ("sent").
+- **Reboot → fastboot funziona** (0211): `davinci-cmd.py reboot` scrive la
+  ragione IMEM e il telefono torna in fastboot da solo, più volte.
+- **Motore di vibrazione:** l'LDO del PM6150 (APID 231) risponde: a mano
+  (poke sul canale `0xd470000`, VSET 0x0bb8, EN_CTL 0x80 per 1 s, STATUS1
+  0x87 = pronto) **l'utente l'ha sentito vibrare**. L'impulso di prova di
+  0212t (120 ms) non è stato sentito; le vibrazioni di iOS (pressione lunga)
+  nemmeno: 0213 registra chi apre i nodi e i primi pacchetti, e porta
+  l'impulso minimo a 40 ms (da avviare).
+- **Audio di iOS:** con `RedwoodAudio.driver` + VirtualAudio (link) installati
+  mediaserverd parte senza crash, usa "Speaker (VAD [vdef])" e imposta il
+  volume (`DAVINCI AUDIO: volume 0/8 dB under the top`). Nessun suono ancora.
+- **ADSP acceso e stabile** (`adsp 6`):
+  - TrustZone accetta l'immagine (init image / mem setup / auth and reset →
+    0), 18 MB di segmenti, "ready" in 100 ms. Il firmware è rilocabile
+    (linkato a 0x93c00000, caricato a 0x95700000): `adsp.c` riloca come
+    `qcom_mdt_loader`.
+  - GLINK: il DSP apre `glink_ssr`, `IPCRTR`, `fastrpcglink-apps-dsp`,
+    `LOOPBACK_CTL_LPASS`, **`apr_audio_svc`**, `apr_apps2`; QRTR nodo 5,
+    10 servizi; pd-mapper risponde a `avs/audio`.
+  - Primo tentativo: il DSP andava in ERR-FATAL con "USER-PD DOG detects
+    stalled initialization" nel PD dei sensori (`sensor_process`, che vuole
+    file via FastRPC che nessuno serve). Con PD restart abilitato
+    (`tms/pdr_enabled` → root_pd nel pd-mapper) il DSP resta su: stato 6
+    (ready + handover) dopo 2 minuti, nessun errore.
+  - Il primissimo avvio si era bloccato dopo il messaggio all'AOP (processo
+    non uccidibile); dopo un riavvio la stessa sequenza è andata liscia.
+  - Prossimo passo: aprire `apr_audio_svc` dal nostro lato (`link.c` ora
+    gestisce un solo canale) e parlare APR: AFE porta PRI MI2S, ASM, ADM.
+- **CI:** anche `xnu.yml` accetta `-f runner=macos-15-intel` (i runner arm64
+  di GitHub erano pieni).
