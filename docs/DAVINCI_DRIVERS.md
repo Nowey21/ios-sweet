@@ -867,15 +867,27 @@ nero**, Wi-Fi che si accende tardi e va **ricollegato a mano** a ogni avvio,
   risultati di scansione hanno noise 0 / snr 0 / noise_known 0 e
   `APPLE80211_IOC_NOISE` (17) risponde EOPNOTSUPP. **Patch 0207**
   (`0207-davinci-wifi-noise-floor.patch`): noise -95 dBm, snr = rssi + 95
-  nei risultati, GET NOISE con lo stesso layout di GET RSSI. **Non ancora
-  provata:** vedi sotto.
-- **Kernel compilati con Xcode 16 non partono:** il build di 0207 su
-  macos-15 (run 42178564570) si ferma subito dopo "SWEET EARLY EL: kprintf
-  startup complete" (`shim-boot-0207mf8.img`, sha256 `59c19ec1…`). Il
-  kernel 0206 compilato con Xcode 16 (`xnu/out-0206-x16`) non era mai stato
-  avviato: il problema è la toolchain, non la patch. Finché non c'è un
-  kernel buono serve un runner con Xcode 14/15 (macos-14 rifiutato da
-  GitHub dal 5 novembre) o capire cosa rompe Xcode 16.
+  nei risultati, GET NOISE con lo stesso layout di GET RSSI. Provata: non
+  basta (vedi sotto).
+- **Kernel compilati con Xcode 16: partono solo con `-v`.** Il build di
+  0207 su macos-15 (run 42178564570, Xcode_16.app; sul runner ci sono solo
+  Xcode 16.x e 26.x) con la cmdline solita si ferma dopo "SWEET EARLY EL:
+  kprintf startup complete" con la barra di avanzamento a schermo
+  (`shim-boot-0207mf8.img`, sha256 `59c19ec1…`, due volte su due). Con
+  `-v` (avvio in modalità testo, niente barra) parte normalmente: rete,
+  interfaccia, tutto. `shim-boot-0207v.img` (console accesa: a schermo il
+  testo esce storto sopra l'interfaccia) e **`shim-boot-0207mf8v.img`**
+  (sha256 `a38b49f7…`): `-v` + `sweetfb_noconsole=1`, schermo pulito, è
+  l'immagine da usare. La causa precisa nel codice della barra non è
+  cercata. Da qui in poi tutte le immagini con kernel Xcode 16 vogliono `-v`.
+- **0207 non basta per il Wi-Fi:** con noise -95 dBm e GET NOISE risposto,
+  wifid continua a scartare la rete con "Below minimum RSSI threshold". Altre
+  richieste che rifiutiamo: `RSSI_BOUNDS` (106, 16 byte; formato non
+  documentato, itlwm su Mac non la gestisce e lì l'auto-join funziona),
+  `COUNTRY_CODE` (51), 383, `PHY_MODE` (14), `RATE`, `MCS`. Serve guardare in
+  CoreWiFi da dove viene la soglia (dyld cache). Ripiego intanto: wland si
+  collega da solo all'avvio se c'è `/var/local/wlan.conf` (scritto
+  dall'utente, fuori da git).
 - **Editor degli sfondi bloccato:** il poster "Terra" (AegirPoster) andava in
   loop: due shader (`aegir_star_fsh`, `aegir_earth_fsh`) scrivono in
   `BGR10_XR_sRGB` con blending, metal2vulkan rifiuta
