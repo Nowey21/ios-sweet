@@ -1,0 +1,186 @@
+diff --git a/iokit/Kernel/arm/SweetFramebuffer.cpp b/iokit/Kernel/arm/SweetFramebuffer.cpp
+index 01a2964..e208d33 100755
+--- a/iokit/Kernel/arm/SweetFramebuffer.cpp
++++ b/iokit/Kernel/arm/SweetFramebuffer.cpp
+@@ -150,6 +150,8 @@ public:
+ 
+ OSDefineMetaClassAndStructors(AppleCLCD, IOMobileFramebuffer);
+ 
++static void sweet_backlight_publish(IOService *display);
++
+ class IOMobileFramebufferUserClient : public IOUserClient {
+ 	OSDeclareDefaultStructors(IOMobileFramebufferUserClient);
+ 
+@@ -246,8 +248,8 @@ AppleCLCD::start(IOService *provider)
+ 	setProperty(kIOUserClientClassKey, "IOMobileFramebufferUserClient");
+ 	setProperty("external", false);
+ 	setProperty("DisplayPipePlaneBaseAlignment", 64ULL, 32);
+-	setProperty("backlight-control", true);         /* backboardd's brightness looks for this */
+ 	registerService();
++	sweet_backlight_publish(this);
+ 	IOLog("SWEET FB: AppleCLCD %ux%u stride %u at 0x%llx, default surface %u, presented as %ux%u\n",
+ 	    fWidth, fHeight, fRowBytes, fPhys, fSurface->id, fLogicalW, fLogicalH);
+ 	return true;
+@@ -342,6 +344,162 @@ AppleCLCD::vsyncFired(OSObject *owner, IOTimerEventSource *sender)
+ 	}
+ }
+ 
++/*
++ * The panel's brightness. davinci's Samsung EA panel takes DCS 0x51 with an 11-bit value,
++ * high byte first; the DSI host sends it from memory (DMA), triggered by software.
++ */
++#define DSI0_PA                 0xae94000ULL
++#define DSI_INT_CTRL            0x110
++#define DSI_DMA_CMD_OFFSET      0x048
++#define DSI_DMA_CMD_LENGTH      0x04c
++#define DSI_DMA_SW_TRIGGER      0x090
++#define BL_PACKET_PA            0x9d6ff000ULL   /* last page of cont_splash_region */
++#define BL_MIN                  4
++#define BL_MAX                  0x7ff
++#define BL_ABL                  0x10e           /* what ABL set (its last DMA packet) */
++
++extern "C" vm_offset_t ml_io_map(vm_offset_t, vm_size_t);
++static IOLock *sweet_bl_lock;
++static uint32_t sweet_bl_level = BL_ABL;
++
++static int
++sweet_panel_brightness(uint32_t level)
++{
++	static vm_offset_t dsi, pkt;
++	if (level < BL_MIN) {
++		level = BL_MIN;
++	} else if (level > BL_MAX) {
++		level = BL_MAX;
++	}
++	if (sweet_bl_lock == NULL) {
++		return -1;
++	}
++	IOLockLock(sweet_bl_lock);
++	if (dsi == 0) {
++		dsi = ml_io_map(DSI0_PA, 0x1000);
++		pkt = ml_io_map(BL_PACKET_PA, 0x1000);
++	}
++	int rc = -1;
++	if (dsi != 0 && pkt != 0) {
++		volatile uint32_t *r = (volatile uint32_t *)dsi, *p = (volatile uint32_t *)pkt;
++		p[0] = 0xc0390003;      /* last | long | DCS long write (0x39), 3 bytes */
++		p[1] = 0xff000000 | (level & 0xff) << 16 | (level >> 8) << 8 | 0x51;
++		__builtin_arm_dsb(0xf);
++		r[DSI_INT_CTRL / 4] = r[DSI_INT_CTRL / 4] | 1;     /* clear DMA done */
++		r[DSI_DMA_CMD_OFFSET / 4] = (uint32_t)BL_PACKET_PA;
++		r[DSI_DMA_CMD_LENGTH / 4] = 8;
++		__builtin_arm_dsb(0xf);
++		r[DSI_DMA_SW_TRIGGER / 4] = 1;
++		for (int i = 0; i < 200; i++) {
++			if (r[DSI_INT_CTRL / 4] & 1) {
++				rc = 0;
++				break;
++			}
++			IODelay(100);
++		}
++		r[DSI_INT_CTRL / 4] = r[DSI_INT_CTRL / 4] | 1;
++		if (rc == 0) {
++			sweet_bl_level = level;
++		}
++	}
++	IOLockUnlock(sweet_bl_lock);
++	return rc;
++}
++
++/* CoreBrightness's internal display: a service of this class, with IODisplayParameters. */
++class AppleARMBacklight : public IOService {
++	OSDeclareDefaultStructors(AppleARMBacklight);
++public:
++	void publishLevel(void);
++	IOReturn setProperties(OSObject *properties) APPLE_KEXT_OVERRIDE;
++};
++
++OSDefineMetaClassAndStructors(AppleARMBacklight, IOService);
++
++void
++AppleARMBacklight::publishLevel(void)
++{
++	OSDictionary *params = OSDictionary::withCapacity(1), *b = OSDictionary::withCapacity(3);
++	OSNumber *mn = OSNumber::withNumber(BL_MIN, 32), *mx = OSNumber::withNumber(BL_MAX, 32);
++	OSNumber *v = OSNumber::withNumber(sweet_bl_level, 32);
++	if (params && b && mn && mx && v) {
++		b->setObject("min", mn);
++		b->setObject("max", mx);
++		b->setObject("value", v);
++		params->setObject("brightness", b);
++		setProperty("IODisplayParameters", params);
++	}
++	OSSafeReleaseNULL(mn);
++	OSSafeReleaseNULL(mx);
++	OSSafeReleaseNULL(v);
++	OSSafeReleaseNULL(b);
++	OSSafeReleaseNULL(params);
++}
++
++/* a level from a number, or from a dictionary with "value" */
++static bool
++sweet_bl_number(OSObject *o, uint32_t *out)
++{
++	OSDictionary *d = OSDynamicCast(OSDictionary, o);
++	if (d != NULL) {
++		o = d->getObject("value");
++	}
++	OSNumber *n = OSDynamicCast(OSNumber, o);
++	if (n == NULL) {
++		return false;
++	}
++	*out = n->unsigned32BitValue();
++	return true;
++}
++
++IOReturn
++AppleARMBacklight::setProperties(OSObject *properties)
++{
++	OSSerialize *s = OSSerialize::withCapacity(512);
++	if (s != NULL && properties != NULL && properties->serialize(s)) {
++		IOLog("SWEET BL: setProperties %.900s\n", s->text());
++	}
++	OSSafeReleaseNULL(s);
++	OSDictionary *dict = OSDynamicCast(OSDictionary, properties);
++	if (dict == NULL) {
++		return kIOReturnBadArgument;
++	}
++	OSObject *o = dict->getObject("brightness");
++	OSDictionary *params = OSDynamicCast(OSDictionary, dict->getObject("IODisplayParameters"));
++	if (o == NULL && params != NULL) {
++		o = params->getObject("brightness");
++	}
++	uint32_t level;
++	if (o != NULL && sweet_bl_number(o, &level)) {
++		int rc = sweet_panel_brightness(level);
++		IOLog("SWEET BL: brightness %u -> panel %u (%s)\n", level, sweet_bl_level, rc == 0 ? "sent" : "FAILED");
++		publishLevel();
++	}
++	return kIOReturnSuccess;
++}
++
++static void
++sweet_backlight_publish(IOService *display)
++{
++	uint32_t on = 1;
++	PE_parse_boot_argn("sweetbl", &on, sizeof(on));
++	if (!on) {
++		return;
++	}
++	sweet_bl_lock = IOLockAlloc();
++	AppleARMBacklight *bl = new AppleARMBacklight;
++	if (bl == NULL || !bl->init() || !bl->attach(display)) {
++		IOLog("SWEET BL: no backlight service\n");
++		OSSafeReleaseNULL(bl);
++		return;
++	}
++	bl->setProperty("backlight-control", true);
++	bl->publishLevel();
++	bl->registerService();
++	bl->release();
++	IOLog("SWEET BL: AppleARMBacklight published (DCS 0x51, %u..%u, now %u)\n", BL_MIN, BL_MAX, sweet_bl_level);
++}
++
+ /* What userland writes to the display (brightness, from CoreBrightness): logged, accepted. */
+ IOReturn
+ AppleCLCD::setProperties(OSObject *properties)
