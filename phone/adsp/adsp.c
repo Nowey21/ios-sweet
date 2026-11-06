@@ -260,6 +260,14 @@ static size_t mdt_len;
 static struct phdr *ph;
 static uint32_t phnum, phoff;
 static int hash_seg = -1;
+/* a relocatable image (Linux qcom_mdt_loader: p_flags bit 27) is loaded at its lowest address's place
+ * in the reserved memory, every segment keeping its distance from it */
+static int64_t reloc;
+
+static uint64_t seg_pa(uint32_t i)
+{
+	return (uint64_t)((int64_t)ph[i].paddr + reloc);
+}
 
 static int fw_check(void)
 {
@@ -335,7 +343,7 @@ static int boot_adsp(void)
 	for (uint32_t i = 0; i < phnum; i++) {
 		if (ph[i].type != 1 || (int)i == hash_seg || !ph[i].memsz)
 			continue;
-		uint64_t pa = ph[i].paddr;
+		uint64_t pa = seg_pa(i);
 		if (ph[i].filesz) {
 			char path[128];
 			size_t sl;
