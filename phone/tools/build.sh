@@ -31,5 +31,6 @@ for c in delayrun membw pstack psx runq; do build $c $c.c; done
 for m in bright expt exq nettest openapp oslog prefs; do build $m $m.m -fobjc-arc -framework Foundation; done
 build imgtest imgtest.m -fobjc-arc -framework Foundation -framework ImageIO -framework CoreGraphics
 build lsreg lsreg.m -fobjc-arc -framework Foundation -framework MobileCoreServices
+build sound_test sound_test.c -framework CoreFoundation -framework AudioToolbox -lobjc
 build netsvc netsvc.m -fobjc-arc -framework Foundation -framework SystemConfiguration
 ls -l out
