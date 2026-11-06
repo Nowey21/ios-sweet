@@ -1,0 +1,63 @@
+diff --git a/iokit/Kernel/arm/SweetFramebuffer.cpp b/iokit/Kernel/arm/SweetFramebuffer.cpp
+index bc98b59..01a2964 100755
+--- a/iokit/Kernel/arm/SweetFramebuffer.cpp
++++ b/iokit/Kernel/arm/SweetFramebuffer.cpp
+@@ -139,6 +139,7 @@ public:
+ 	uint32_t      fFadeStep;      /* fade-out steps done while off */
+ 
+ 	bool start(IOService *provider) APPLE_KEXT_OVERRIDE;
++	IOReturn setProperties(OSObject *properties) APPLE_KEXT_OVERRIDE;
+ 	void addClient(IOMobileFramebufferUserClient *client);
+ 	void removeClient(IOMobileFramebufferUserClient *client);
+ 	void swap(const uint8_t *rec);
+@@ -245,6 +246,7 @@ AppleCLCD::start(IOService *provider)
+ 	setProperty(kIOUserClientClassKey, "IOMobileFramebufferUserClient");
+ 	setProperty("external", false);
+ 	setProperty("DisplayPipePlaneBaseAlignment", 64ULL, 32);
++	setProperty("backlight-control", true);         /* backboardd's brightness looks for this */
+ 	registerService();
+ 	IOLog("SWEET FB: AppleCLCD %ux%u stride %u at 0x%llx, default surface %u, presented as %ux%u\n",
+ 	    fWidth, fHeight, fRowBytes, fPhys, fSurface->id, fLogicalW, fLogicalH);
+@@ -340,6 +342,18 @@ AppleCLCD::vsyncFired(OSObject *owner, IOTimerEventSource *sender)
+ 	}
+ }
+ 
++/* What userland writes to the display (brightness, from CoreBrightness): logged, accepted. */
++IOReturn
++AppleCLCD::setProperties(OSObject *properties)
++{
++	OSSerialize *s = OSSerialize::withCapacity(512);
++	if (s != NULL && properties != NULL && properties->serialize(s)) {
++		IOLog("SWEET FB: setProperties %.900s\n", s->text());
++	}
++	OSSafeReleaseNULL(s);
++	return kIOReturnSuccess;
++}
++
+ void
+ AppleCLCD::addClient(IOMobileFramebufferUserClient *client)
+ {
+@@ -764,6 +778,23 @@ IOMobileFramebufferUserClient::externalMethod(uint32_t selector, IOExternalMetho
+ 			IOLog("SWEET FB: display %s\n", off ? "off" : "on");
+ 		}
+ 		break;
++	case 50:
++	case 66:
++	case 68: {
++		static uint32_t logged;
++		if (logged++ < 300) {
++			uint64_t v = 0;
++			if (args->structureInputDescriptor == NULL && args->structureInput != NULL) {
++				memcpy(&v, args->structureInput, args->structureInputSize < 8 ? args->structureInputSize : 8);
++			}
++			char name[32];
++			proc_selfname(name, sizeof(name));
++			IOLog("SWEET FB: %s sel %u scalars %u [0x%llx 0x%llx] struct %u [0x%llx]\n", name, selector,
++			    args->scalarInputCount, args->scalarInputCount > 0 ? args->scalarInput[0] : 0,
++			    args->scalarInputCount > 1 ? args->scalarInput[1] : 0, args->structureInputSize, v);
++		}
++		break;
++	}
+ 	case kSweetFBSwapWait:
+ 	default:
+ 		break;
