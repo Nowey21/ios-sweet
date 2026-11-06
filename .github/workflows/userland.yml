@@ -10,6 +10,7 @@ on:
       - "phone/wifi/**"
       - "phone/tools/**"
       - "phone/audio/**"
+      - "phone/adsp/**"
       - "phone/turnip/v2test.cpp"
       - "phone/turnip/NativeAdrenoABI.h"
       - ".github/workflows/userland.yml"
@@ -29,6 +30,11 @@ jobs:
 
       - name: wland (Wi-Fi)
         run: sh phone/wifi/build.sh
+
+      - name: adsp (audio DSP bring-up, wland's files with the DSP's numbers)
+        run: |
+          sh phone/adsp/build.sh
+          mkdir -p phone/wifi/out && cp phone/adsp/out/adsp phone/wifi/out/
 
       - name: v2test (GPU ABI test, no Turnip)
         run: |

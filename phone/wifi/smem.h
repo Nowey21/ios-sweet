@@ -7,6 +7,7 @@
 #define SMEM_SIZE	0x200000ull
 #define SMEM_HOST_APPS	0
 #define SMEM_HOST_MODEM	1
+#define SMEM_HOST_ADSP	2
 #define SMEM_HOST_GLOBAL 0xfffe
 
 int smem_init(void);

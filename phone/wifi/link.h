@@ -3,7 +3,9 @@
 #include <stdint.h>
 
 #define QRTR_NODE_APPS		1
-#define QRTR_NODE_MODEM		0
+#ifndef QRTR_NODE_MODEM
+#define QRTR_NODE_MODEM		0	/* the remote node; phone/adsp: 5, the audio DSP */
+#endif
 #define QRTR_NODE_BCAST		0xffffffffu
 #define QRTR_PORT_CTRL		0xfffffffeu
 
