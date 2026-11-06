@@ -491,11 +491,102 @@ static int apr_cmd(uint8_t svc, uint16_t port, uint32_t opcode, const void *payl
 	uint64_t end = link_ms() + ms;
 	while (link_ms() < end) {
 		link_poll(5);
-		if (apr_got_opcode == want || (apr_got_opcode == APR_BASIC_RSP && apr_got_token == h.token))
+		if ((want && apr_got_opcode == want) || (apr_got_opcode == APR_BASIC_RSP && apr_got_token == h.token))
 			return 0;
 	}
 	printf("apr: no answer to %#x in %u ms\n", opcode, ms);
 	return -1;
+}
+
+/*
+ * ---- step 8: the speaker's port (Linux sound/soc/qcom/qdsp6/q6afe.c, msm q6afe.c) ----
+ * The TFA9874 sits on the primary MI2S interface (davinci DT: qcom,pri-mi2s-gpios; pins gpio49 bit
+ * clock, gpio50 word select, gpio52 data 0, all on the TLMM's west tile, function 1 = pri_mi2s,
+ * mainline pinctrl-sm7150.c). The DSP runs the interface: its bit clock (PRI_MI2S_IBIT) is set
+ * through the AFE's clock module, the port is configured as I2S and started. With no stream yet it
+ * sends silence; gpio49's level is then sampled to see the clock toggle.
+ */
+#define APR_SVC_AFE		4
+#define AFE_SVC_CMD_SET_PARAM	0x000100fc
+#define AFE_PORT_CMD_SET_PARAM_V2 0x000100ef
+#define AFE_PORT_CMD_DEVICE_START 0x000100e5
+#define AFE_PORT_CMD_DEVICE_STOP 0x000100e6
+#define AFE_MODULE_CLOCK_SET	0x0001028f
+#define AFE_PARAM_ID_CLOCK_SET	0x00010290
+#define AFE_MODULE_AUDIO_DEV_INTERFACE 0x0001020c
+#define AFE_PARAM_ID_I2S_CONFIG	0x0001020d
+#define AFE_PORT_PRI_MI2S_RX	0x1000
+#define CLK_PRI_MI2S_IBIT	0x100
+#define TLMM_WEST		0x03500000ull
+#define TLMM_CFG(base, n)	((base) + 0x1000ull * (n))
+
+static void pin_func(uint64_t tile, unsigned gpio, unsigned func, unsigned drive_ma)
+{
+	uint32_t cfg = rd32(TLMM_CFG(tile, gpio));
+	cfg &= ~0x3ffu;
+	cfg |= (func << 2) | (((drive_ma / 2) - 1) << 6);	/* no pull */
+	wr32(TLMM_CFG(tile, gpio), cfg);
+	printf("pins: gpio%u cfg %08x\n", gpio, rd32(TLMM_CFG(tile, gpio)));
+}
+
+static int afe_status(const char *what)
+{
+	uint32_t st = apr_got_len >= 8 ? apr_got[1] : 0xffffffff;
+	printf("afe: %s -> %s (status %#x)\n", what, st == 0 ? "ok" : "FAILED", st);
+	return st == 0 ? 0 : -1;
+}
+
+static int speaker_port(void)
+{
+	pin_func(TLMM_WEST, 49, 1, 8);	/* bit clock */
+	pin_func(TLMM_WEST, 50, 1, 8);	/* word select */
+	pin_func(TLMM_WEST, 52, 1, 8);	/* data 0 */
+
+	/* the bit clock: 48 kHz x 16 bits x 2 channels */
+	struct {
+		uint32_t payload_size, addr_lsw, addr_msw, mem_map_handle;
+		uint32_t module_id, param_id;
+		uint16_t param_size, reserved;
+		uint32_t minor_version, clk_id, clk_freq;
+		uint16_t clk_attri, clk_root;
+		uint32_t enable;
+	} __attribute__((packed)) clk = {
+		.payload_size = 12 + 20, .module_id = AFE_MODULE_CLOCK_SET, .param_id = AFE_PARAM_ID_CLOCK_SET,
+		.param_size = 20, .minor_version = 1, .clk_id = CLK_PRI_MI2S_IBIT, .clk_freq = 1536000,
+		.clk_attri = 1 /* couple no */, .clk_root = 0, .enable = 1,
+	};
+	if (apr_cmd(APR_SVC_AFE, 0, AFE_SVC_CMD_SET_PARAM, &clk, sizeof(clk), 0, 2000) || afe_status("bit clock 1.536 MHz"))
+		return -1;
+
+	/* the port: I2S on SD0, stereo, word select from us, 16 bits, 48 kHz */
+	struct {
+		uint16_t port_id, payload_size;
+		uint32_t addr_lsw, addr_msw, mem_map_handle;
+		uint32_t module_id, param_id;
+		uint16_t param_size, reserved;
+		uint32_t minor_version;
+		uint16_t bit_width, channel_mode, mono_stereo, ws_src;
+		uint32_t sample_rate;
+		uint16_t data_format, reserved2;
+	} __attribute__((packed)) i2s = {
+		.port_id = AFE_PORT_PRI_MI2S_RX, .payload_size = 12 + 20, .module_id = AFE_MODULE_AUDIO_DEV_INTERFACE,
+		.param_id = AFE_PARAM_ID_I2S_CONFIG, .param_size = 20, .minor_version = 1, .bit_width = 16,
+		.channel_mode = 1 /* SD0 */, .mono_stereo = 1 /* stereo */, .ws_src = 1 /* internal */,
+		.sample_rate = 48000, .data_format = 0 /* linear PCM */,
+	};
+	if (apr_cmd(APR_SVC_AFE, 0, AFE_PORT_CMD_SET_PARAM_V2, &i2s, sizeof(i2s), 0, 2000) || afe_status("I2S config"))
+		return -1;
+
+	struct { uint16_t port_id, reserved; } start = { AFE_PORT_PRI_MI2S_RX, 0 };
+	if (apr_cmd(APR_SVC_AFE, 0, AFE_PORT_CMD_DEVICE_START, &start, sizeof(start), 0, 2000) || afe_status("port start"))
+		return -1;
+
+	/* is the bit clock toggling at the pin? */
+	unsigned ones = 0, n = 2000;
+	for (unsigned i = 0; i < n; i++)
+		ones += rd32(TLMM_CFG(TLMM_WEST, 49) + 4) & 1;
+	printf("pins: gpio49 high in %u of %u samples%s\n", ones, n, ones > 0 && ones < n ? ": the bit clock runs" : "");
+	return 0;
 }
 
 int main(int argc, char **argv)
@@ -576,6 +667,8 @@ link:
 		if (link_aux_ready()) {
 			apr_cmd(APR_SVC_CORE, 0, AVCS_GET_STATE, NULL, 0, AVCS_GET_STATE_RSP, 2000);
 			apr_cmd(APR_SVC_CORE, 0, AVCS_GET_VERSIONS, NULL, 0, AVCS_GET_VERSIONS_RSP, 2000);
+			if (steps >= 8)
+				speaker_port();
 		}
 	}
 	uint64_t end = link_ms() + 120000;	/* the DSP's user PDs ask while they start: keep answering */
