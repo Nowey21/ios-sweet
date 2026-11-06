@@ -1,0 +1,19 @@
+diff --git a/bsd/dev/sweet_usb.c b/bsd/dev/sweet_usb.c
+index 59c51b1..8cb11f2 100755
+--- a/bsd/dev/sweet_usb.c
++++ b/bsd/dev/sweet_usb.c
+@@ -1144,7 +1144,13 @@ ud_cmd_thread(void *arg __unused, wait_result_t wr __unused)
+ 		}
+ 		if (strncmp(cmd, "reboot", 6) == 0) {
+ 			ud_sleep_ms(1000);      /* let HFS finish the journal writes */
+-			printf("SWEET CMD: rebooting (PSCI SYSTEM_RESET)\n");
++			/* ABL: come back in fastboot (Linux's "reboot bootloader" IMEM reason) */
++			vm_offset_t imem = ml_io_map(0x146aa000, 0x1000);
++			if (imem != 0) {
++				*(volatile uint32_t *)(imem + 0x65c) = 0x77665500;
++				__asm__ volatile ("dsb sy" ::: "memory");
++			}
++			printf("SWEET CMD: rebooting (PSCI SYSTEM_RESET, IMEM reason bootloader%s)\n", imem ? "" : " NOT set");
+ 			ud_sleep_ms(500);       /* let the log go out */
+ 			register uint64_t x0 __asm__("x0") = 0x84000009ULL;
+ 			__asm__ volatile ("smc #0" : "+r"(x0) : : "x1", "x2", "x3", "memory");
