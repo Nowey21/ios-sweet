@@ -535,6 +535,13 @@ static int apr_cmd(uint8_t svc, uint16_t port, uint32_t opcode, const void *payl
 	if (len)
 		memcpy(pkt + sizeof(h), payload, len);
 	apr_got_opcode = 0;
+	printf("apr: > svc %u opcode %#x token %u, %u bytes:", svc, opcode, h.token, (unsigned)(sizeof(h) + len));
+	for (uint32_t i = 0; i < (sizeof(h) + len) / 4; i++) {
+		uint32_t w;
+		memcpy(&w, pkt + 4 * i, 4);
+		printf(" %08x", w);
+	}
+	printf("\n");
 	if (link_aux_send(pkt, sizeof(h) + len))
 		return -1;
 	uint64_t end = link_ms() + ms;
@@ -587,10 +594,6 @@ static int afe_status(const char *what)
 
 static int speaker_port(void)
 {
-	/* where the audio services live: is their protection domain up? */
-	servreg_ask("msm/adsp/root_pd");
-	servreg_ask("msm/adsp/audio_pd");
-	servreg_ask("msm/adsp/sensor_pd");
 	pin_func(TLMM_WEST, 49, 1, 8);	/* bit clock */
 	pin_func(TLMM_WEST, 50, 1, 8);	/* word select */
 	pin_func(TLMM_WEST, 52, 1, 8);	/* data 0 */
@@ -608,8 +611,11 @@ static int speaker_port(void)
 		.param_size = 20, .minor_version = 1, .clk_id = CLK_PRI_MI2S_IBIT, .clk_freq = 1536000,
 		.clk_attri = 1 /* couple no */, .clk_root = 0, .enable = 1,
 	};
-	if (apr_cmd(APR_SVC_AFE, 0, AFE_SVC_CMD_SET_PARAM, &clk, sizeof(clk), 0, 2000) || afe_status("bit clock 1.536 MHz"))
+	if (apr_cmd(APR_SVC_AFE, 0, AFE_SVC_CMD_SET_PARAM, &clk, sizeof(clk), 0, 2000) || afe_status("bit clock 1.536 MHz")) {
+		/* does the DSP still answer at all (the core service answered before)? */
+		apr_cmd(APR_SVC_CORE, 0, AVCS_GET_STATE, NULL, 0, AVCS_GET_STATE_RSP, 2000);
 		return -1;
+	}
 
 	/* the port: I2S on SD0, stereo, word select from us, 16 bits, 48 kHz */
 	struct {
