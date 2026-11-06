@@ -31,12 +31,21 @@ static void run(const char *dir, const char *name)
 	snprintf(rc, sizeof(rc), "%s/%.*s.rc", dir, (int)len, name);
 	if (rename(cmd, path) != 0)
 		return;
+	/* each command in its own child, so a long one (oslog -t) does not hold up the others */
+	pid_t child = fork();
+	if (child != 0) {
+		if (child > 0)
+			waitpid(child, NULL, 0);	/* the child forks again at once */
+		return;
+	}
+	if (fork() != 0)
+		_exit(0);
 	int fd = open(path, O_RDONLY);
 	ssize_t n = fd < 0 ? -1 : read(fd, buf, sizeof(buf) - 1);
 	if (fd >= 0)
 		close(fd);
 	if (n <= 0)
-		return;
+		_exit(1);
 	buf[n] = 0;
 
 	char *argv[MAX_ARGS + 1];
@@ -75,6 +84,7 @@ static void run(const char *dir, const char *name)
 		fclose(f);
 	}
 	unlink(path);
+	_exit(0);
 }
 
 int main(int argc, char **argv)
