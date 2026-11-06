@@ -1021,3 +1021,24 @@ nero**, Wi-Fi che si accende tardi e va **ricollegato a mano** a ogni avvio,
 4. Se la vibrazione va: `tools/davinci-audio-install.sh research/userland-out-a`,
    riavvio con `0212d`, controllare mediaserverd e la vibrazione della
    tastiera.
+- **`phone/adsp`** (`adsp STEP`, ancora da provare sul telefono): avvio
+  dell'ADSP a passi, costruito con i file di `wland` con i numeri del DSP
+  (`glink.c`/`link.h`/`pdmapper.c` ora prendono host, campanello, nodo e
+  tabella come opzioni di compilazione; per `wland` non cambia niente):
+  1 SMEM (il DSP ha già girato? item 443), 2 firmware (`/var/local/fw/adsp`,
+  segmenti dentro `0x95700000+0x2600000`), 3 SMP2P item 429, 4 voto cx al
+  massimo + AOP "adsp on", 5 PAS immagine 1 (metadati, mem setup, segmenti,
+  auth and reset) e attesa di "ready", 6 GLINK `lpass` + QRTR (nodo 5) con
+  pd-mapper (domini `msm/adsp/root_pd`, `audio_pd` con `avs/audio`,
+  `sensor_pd`, istanza 74): stampa i servizi annunciati.
+  `tools/davinci-adsp-install.sh USERLAND_DIR` copia firmware e programma.
+  Passo successivo: APR su `apr_audio_svc` (AFE/ASM/ADM come
+  `hakios.sound.c`, porta PRI MI2S).
+- **TFA9874, formato del contenitore:** sorgenti NXP (Apache 2.0) dal kernel
+  OnePlus 6 (`engstk/op6`, `techpack/asoc/codecs/tfa9874`), copia locale in
+  `research/tfa-src` per riferimento: `nxpTfaContainer` = id "PM", version
+  "3_", subversion "01", size, CRC, rev, customer/application/type (8 byte
+  ciascuno), ndev, nprof, nliveData, poi la tabella dei descrittori.
+  Avvio (`tfa_init.c`/`tfa_dev_start`): accensione, attesa PLL, voci della
+  lista del dispositivo e del profilo, poi unmute. I2C: QUP `0x890000`,
+  indirizzo `0x34`, reset GPIO 12.
