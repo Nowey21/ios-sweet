@@ -439,6 +439,15 @@ int main(int argc, char **argv)
 		uint32_t v = 0;
 		smp2p_in_value("slave-kernel", &v);
 		printf("step 1: its state %x%s%s\n", v, v & 2 ? " ready" : "", v & 1 ? " ERR-FATAL" : "");
+		/* its last words (Linux qcom_q6v5: the SFR, SMEM item 423 in the global partition) */
+		uint64_t sfr;
+		uint32_t sfr_len;
+		if (smem_get(SMEM_HOST_GLOBAL, 423, &sfr, &sfr_len) == 0 && sfr_len > 0) {
+			char text[257] = { 0 };
+			pm_rd(sfr, text, sfr_len < 256 ? (sfr_len + 3) & ~3u : 256);
+			text[sfr_len < 256 ? sfr_len : 256] = 0;
+			printf("step 1: its last words (item 423, %u bytes): \"%s\"\n", sfr_len, text);
+		}
 	}
 	if (steps < 2)
 		return 0;
