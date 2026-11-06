@@ -448,6 +448,14 @@ int main(int argc, char **argv)
 	if (steps < 3)
 		return 0;
 	if (ran) {
+		uint32_t v = 0;
+		/* a DSP that is up and well (started by an earlier run of ours): talk to it, from step 6 */
+		if (steps >= 6 && smp2p_in_value("slave-kernel", &v) == 0 && (v & 2) && !(v & 1)) {
+			uint32_t sz2;
+			smem_get(SMEM_HOST_ADSP, SMP2P_OUT, &smp2p_out_pa, &sz2);
+			printf("the DSP is up already: attaching (step 6)\n");
+			goto link;
+		}
 		fprintf(stderr, "the DSP ran in this power cycle: not starting it over its old state\n");
 		return 1;
 	}
@@ -468,6 +476,7 @@ int main(int argc, char **argv)
 	if (steps < 6)
 		return 0;
 	/* 6 */
+link:
 	if (link_up(net_cb, 10000)) {
 		fprintf(stderr, "glink/qrtr: not up\n");
 		return 1;
