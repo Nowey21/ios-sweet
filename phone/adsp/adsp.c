@@ -507,8 +507,8 @@ static void apr_cb(const uint8_t *d, uint32_t n)
 		return;
 	memcpy(&h, d, sizeof(h));
 	uint32_t plen = n - sizeof(h);
-	printf("apr: < svc %u/%u port %u -> %u/%u: opcode %#x token %u, %u bytes:", h.src_svc, h.src_domain, h.src_port,
-	    h.dest_svc, h.dest_domain, h.opcode, h.token, plen);
+	printf("apr: < field %#x size %u (glink %u) svc %u/%u port %u -> %u/%u: opcode %#x token %u, %u bytes:", h.hdr_field,
+	    h.pkt_size, n, h.src_svc, h.src_domain, h.src_port, h.dest_svc, h.dest_domain, h.opcode, h.token, plen);
 	for (uint32_t i = 0; i < plen / 4 && i < 16; i++) {
 		uint32_t w;
 		memcpy(&w, d + sizeof(h) + 4 * i, 4);
