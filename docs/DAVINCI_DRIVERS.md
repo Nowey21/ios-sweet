@@ -904,3 +904,46 @@ nero**, Wi-Fi che si accende tardi e va **ricollegato a mano** a ogni avvio,
 - Ancora aperti: PridePoster e assetsd crashano nello stesso punto (sig 6,
   non GPU); i servizi di sintesi vocale (KonaSynthesizer, MacinTalkAUSP,
   SiriTTSSynthesizer) si riavviano in loop; Safari da verificare.
+
+### 6 novembre, giorno/notte: Wi-Fi da solo, Safari, strumenti, luminosità
+
+- **Wi-Fi si ricollega da solo (0208).** Trovato nel codice: `wifid`
+  (16.7.16, 0x100128a20) confronta `scanResult.RSSI` con la soglia del
+  device e, se minore, "Below minimum RSSI threshold". La soglia è
+  `RSSI_THRESHOLD`, che wifid legge all'avvio del device (0x10004b8d0) con
+  `Apple80211CopyValue(106 = RSSI_BOUNDS)`; IO80211.framework (0x1d3ec6394)
+  la costruisce dalla risposta di 16 byte: `u32 version`, poi SInt32
+  `RSSI_MIN` @4, `RSSI_MAX` @8, `RSSI_THRESHOLD` @12. Noi rifiutavamo la
+  106 → soglia 0 dBm → ogni rete scartata. **Patch 0208** risponde
+  -100 / 0 / -80. Provato (`0208mf8v`): rete ripresa da sola 7 s dopo la
+  radio, senza toccare niente. La 0207 (noise) resta, innocua.
+  Metodo: dyld cache letta dal telefono a pezzi (`dyld_shared_cache_arm64`
+  + `.01`…`.42`, parser in Python), `wifid` scaricato intero,
+  `llvm-objdump` in WSL.
+- **Kernel con Xcode 16:** le immagini vogliono `-v`; nuovo
+  `tools/davinci-mkimage.sh KERNEL NOME [BOOTARGS]` (da WSL) con la
+  cmdline giornaliera già dentro.
+- **Strumenti nuovi:**
+  - `runq` (job launchd) + `tools/davinci-run.py PROGRAMMA ARG...`:
+    comandi a richiesta senza shell (file `.cmd` in `/var/local/runq`, ogni
+    comando in un processo figlio).
+  - `tools/davinci-shot OUT.png`: screenshot dal framebuffer via
+    `/dev/pmem` (0x9c000000, 1080x2340, righe da 4352 byte).
+  - `bright` (BackBoardServices): la richiesta viene ignorata (manca un
+    entitlement), utile solo per leggere il livello.
+- **Safari funziona:** `openapp com.apple.mobilesafari https://www.wikipedia.org`
+  → pagina completa (screenshot). Il primo avvio di Safari è lento (9 s al
+  primo frame). Restano errori innocui del processo Networking
+  (`set source app uuid failed [13]`, privilegio 10001 negato dal sandbox).
+- **Luminosità, analisi:** backboardd/SpringBoard cercano un servizio con
+  `backlight-control`; CoreBrightness accetta per il display interno solo
+  un servizio di classe **`AppleARMBacklight`** ("unsupported service" con
+  AppleCLCD, 0209) e legge `IODisplayParameters.brightness.{min,max,value}`.
+  Pannello: Samsung EA, `bl_ctrl_dcs`, DCS `0x51` + 2 byte (11 bit,
+  4..0x7ff). L'host DSI0 (0xae94000, v2.3, command mode) manda comandi dalla
+  memoria (DMA); il context bank MDSS dell'SMMU (cb3, SID 0x800) ha la
+  traduzione spenta, quindi l'indirizzo è fisico. L'ultimo pacchetto di ABL
+  (0xfffd4000) era `c0390003` + `51 01 0e` = luminosità 270. Provato a mano
+  con poke: il nostro pacchetto (pagina 0x9d6ff000, fine della
+  cont_splash_region) termina (INT_CTRL bit 0) senza errori.
+  **Patch 0210**: servizio `AppleARMBacklight` + setProperties → DCS 0x51.
