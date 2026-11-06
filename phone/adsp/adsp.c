@@ -725,7 +725,9 @@ int main(int argc, char **argv)
 		return 0;
 	/* 6 */
 link:
-	link_aux("apr_audio_svc", apr_cb);
+	/* adsp STEP CHANNEL: APR on another of the DSP's channels (apr_apps2: its audio PD's?) */
+	link_aux(argc > 2 ? argv[2] : "apr_audio_svc", apr_cb);
+	printf("apr: on the channel %s\n", argc > 2 ? argv[2] : "apr_audio_svc");
 	if (link_up(net_cb, 10000)) {
 		fprintf(stderr, "glink/qrtr: not up\n");
 		return 1;
