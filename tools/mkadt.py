@@ -68,6 +68,30 @@ def d22ap_product(path=D22AP_ADT):
             return [(k, v) for k, f, v in c.props if not f and k not in ('name', 'AAPL,phandle')]
     raise SystemExit(f'{path}: no /product node')
 
+
+# Children of D22AP's /product that are true here too. MobileGestalt answers
+# SupportsHapticPlayback from IODeviceTree:/product/haptics: without it CoreHaptics
+# says the hardware has no haptics and UIKit plays none (davinci: the PM6150's
+# vibrator behind /dev/redwood-haptic). Not camera, facetime or maps.
+D22AP_PRODUCT_CHILDREN = ('haptics', 'audio')
+
+
+def d22ap_product_children(ph, path=D22AP_ADT):
+    if not os.path.exists(path):
+        return []
+    root, _ = adt.parse(open(path, 'rb').read())
+    for c in root.children:
+        if dict((k, v) for k, f, v in c.props).get('name') == b'product\0':
+            out = []
+            for ch in c.children:
+                props = dict((k, v) for k, f, v in ch.props)
+                name = props.get('name', b'').rstrip(b'\0').decode()
+                if name in D22AP_PRODUCT_CHILDREN:
+                    out.append(node(name, [ph()] + [(k, v) for k, f, v in ch.props
+                                                    if not f and k not in ('name', 'AAPL,phandle')]))
+            return out
+    return []
+
 u32 = lambda *v: struct.pack('<%dI' % len(v), *v)
 u64 = lambda *v: struct.pack('<%dQ' % len(v), *v)
 cstr = lambda s: s.encode() + b'\0'
@@ -253,7 +277,7 @@ def build(seed=None, qemu=False, highmem=False, davinci=False):
     ])
 
     product_props = d22ap_product()
-    product = [node('product', [ph()] + product_props)] if product_props else []
+    product = [node('product', [ph()] + product_props, d22ap_product_children(ph))] if product_props else []
 
     # Panic log region. /pram reg = <phys size>; it sits just above the
     # dram-size we expose, so XNU maps it but never allocates into it.
