@@ -808,17 +808,38 @@ nero**, Wi-Fi che si accende tardi e va **ricollegato a mano** a ogni avvio,
     0078 ha già avviato 8 core su questo SoC; l'ADT ha 8 nodi CPU);
   - `shim-boot-0206mf8g.img` (sha256 `a232774c…`): anche
     `sweetgpufreq=5` (GPU 565 MHz).
-- **Audio, Bluetooth, fotocamera: valutazione.** ios-topaz (Redmi Note 12
-  4G, SM6225, clonato in `research/ios-topaz`) ha l'audio: ADSP (0144, 1557
-  righe), codec (0145, 898), stream (0146, 291), `/dev/redwood-audio`
-  (0935). È scritto per il loro hardware (codec digitale LPASS + codec
-  SoundWire); il Mi 9T ha un codec WCD934x su SLIMbus e un amplificatore
-  TFA9874 su I2C per l'altoparlante. Riutilizzabili il boot dell'ADSP via PAS
-  (come il modem in wland) e la parte APR/AFE; codec e amplificatore vanno
-  scritti da capo. Lavoro di più giorni, con l'utente vicino al telefono per
-  ascoltare. Bluetooth (WCN3990 via UART) e fotocamera: nessun port
-  (sweet, flame, topaz) li ha; topaz scrive "No Bluetooth ... audio, camera"
-  per bluetoothd. Non iniziati.
+- **Audio, Bluetooth, fotocamera: valutazione** (corretta la mattina del 6
+  novembre, leggendo `dtb/live.txt` e le patch di ios-topaz).
+  - **Percorso dell'altoparlante sul Mi 9T:** ADSP (LPASS) → porta AFE
+    **PRI MI2S** (nodo `sound`: `qcom,pri-mi2s-gpios`, pin gpio49… funzione
+    `pri_mi2s`; il master MI2S è il SoC) → amplificatore **NXP TFA98xx**
+    (`nxp,tfa98xx`, I2C QUP `0x890000` indirizzo `0x34`, reset gpio 12, irq
+    gpio 56). Il WCD9340 (`tavil`, SLIMbus) serve per cuffie e microfoni,
+    non per l'altoparlante: per un primo suono basta ADSP + MI2S + TFA.
+  - **ios-topaz non si porta così com'è:** SM6225 usa AudioReach (GPR/SPF,
+    "APM GET_SPF_STATE"); il firmware ADSP di SM7150 parla il vecchio **APR**
+    (q6core/q6afe/q6asm/q6adm, nomi `msm-dai-q6-*` nel DT). Riutilizzabili
+    solo gli strati bassi: boot dell'ADSP via PAS, SMP2P, GLINK sul bordo
+    `lpass`, QRTR/pd-mapper (gli stessi che `wland` fa già per il modem).
+    Da scrivere: APR sopra GLINK (`apr_audio_svc`), AFE port start per PRI
+    MI2S (clock, 48 kHz, 16 bit), un ASM stream con buffer condiviso, e il
+    TFA9874, che ha un DSP proprio e vuole il file di contenitore Xiaomi
+    (`tfa98xx.cnt` nel vendor): senza, al massimo in modalità bypass.
+  - Stima: più giorni, e ogni passo va verificato ascoltando, con l'utente
+    vicino al telefono.
+  - **Bluetooth:** il chip BT del WCN3990 sta su UART (QUP `0x88c000`,
+    `msm-geni-serial-hs`); i firmware `crbtfw21.tlv`/`crnv21.bin` sono già
+    in `research/fw/bluetooth` (non in git). Servirebbero un driver UART,
+    il caricamento del firmware Qualcomm (comandi HCI vendor, come
+    `btqca.c` di Linux) e soprattutto far accettare a `bluetoothd`, scritto
+    per chip Broadcom/Apple, un controller Qualcomm. Nessun port lo ha.
+    Fotocamera: nessun port (CAMSS + sensori + ISP), fuori portata.
+- **Il blocco delle 20:30:** il log UDP (`logs/boot21-live.txt`) si ferma
+  alle 20:02 e l'ultimo ring salvato (`boot24-ring.txt`, a 192 s) non mostra
+  errori: pool GPU a 190–241 MB su 944, nessun "no bytes free", niente
+  jetsam. La causa resta sconosciuta. Per escludere la frequenza CPU:
+  `shim-boot-0206mf8s.img` (sha256 `8f8e5cda…`) = `cpus=8 flamecpufreq=1708`
+  (entrambi i cluster alla voce più alta ≤ 1708 MHz).
 
 **Piano del mattino** (con l'utente):
 1. Power+Vol- → fastboot; `fastboot boot shim/out/shim-boot-0206mf8.img`
@@ -830,3 +851,4 @@ nero**, Wi-Fi che si accende tardi e va **ricollegato a mano** a ogni avvio,
    (`/var/local/oslogwifi.out`), fps nel ring.
 4. Se va: provare `0206mf8g` (GPU 565 MHz). Poi togliere i job `lsreg` e
    `oslogwifi`.
+5. Se il telefono si blocca di nuovo: `0206mf8s` (CPU a ~1,7 GHz).
