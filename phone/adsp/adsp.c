@@ -491,7 +491,7 @@ link:
 		return 1;
 	}
 	pdmapper_init();
-	uint64_t end = link_ms() + 20000;
+	uint64_t end = link_ms() + 120000;	/* the DSP's user PDs ask while they start: keep answering */
 	while (link_ms() < end) {
 		smp2p_service();
 		link_poll(200);
